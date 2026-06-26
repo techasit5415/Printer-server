@@ -1,0 +1,101 @@
+/**
+ * CUPS printing helpers.
+ *
+ * Wraps the `lp` and `lpstat` CLI tools. We deliberately keep the
+ * surface tiny — every helper sanitises its inputs so we never end up
+ * with a shell-injection vector.
+ */
+import { exec } from 'node:child_process';
+import { promisify } from 'node:util';
+import { serverEnv } from './env';
+
+const execAsync = promisify(exec);
+
+export interface SubmitOptions {
+	/** Absolute path to the file to print. */
+	filePath: string;
+	/** Number of copies. */
+	copies: number;
+	/** Optional human-readable job title shown in the CUPS queue. */
+	title?: string;
+	/** Duplex / simplex hint — defaults to "one-sided". */
+	sides?: 'one-sided' | 'two-sided-long-edge' | 'two-sided-short-edge';
+	/** Optional explicit media size, e.g. "A4", "Letter". */
+	media?: string;
+}
+
+export interface SubmitResult {
+	jobId: number;
+	raw: string;
+}
+
+/**
+ * Whitelist-validate a string so it can safely be interpolated into a
+ * shell argument. We only allow letters, digits, dot, underscore, dash
+ * and space.
+ */
+function sanitise(value: string, maxLen = 128): string {
+	const cleaned = value.replace(/[^A-Za-z0-9._\- ]/g, '').trim();
+	if (cleaned.length === 0) throw new Error(`Unsafe shell argument: "${value}"`);
+	if (cleaned.length > maxLen) throw new Error(`Argument too long: ${cleaned.length} > ${maxLen}`);
+	return cleaned;
+}
+
+/**
+ * Submit a print job to CUPS via `lp`.
+ *
+ * The Fuji Xerox C3061 ships with PostScript and IPP Everywhere PPDs;
+ * CUPS auto-selects the right driver when the printer is registered
+ * with the correct URI.
+ */
+export async function submitPrintJob(opts: SubmitOptions): Promise<SubmitResult> {
+	if (!Number.isInteger(opts.copies) || opts.copies < 1 || opts.copies > 999) {
+		throw new Error(`Invalid copies value: ${opts.copies}`);
+	}
+
+	const printer = sanitise(serverEnv.printerName, 64);
+	const title = sanitise(opts.title ?? 'SvelteKit Print Job', 128);
+	const sides = sanitise(opts.sides ?? 'one-sided', 32);
+	const media = opts.media ? sanitise(opts.media, 32) : null;
+
+	const args: string[] = [
+		'-d',
+		printer,
+		'-n',
+		String(opts.copies),
+		'-t',
+		title,
+		'-o',
+		`sides=${sides}`
+	];
+	if (media) args.push('-o', `media=${media}`);
+	args.push(opts.filePath);
+
+	const cmd = `lp ${args.map((a) => `'${a.replace(/'/g, `'\\''`)}'`).join(' ')}`;
+
+	const { stdout } = await execAsync(cmd, {
+		maxBuffer: 1024 * 1024,
+		timeout: 60_000,
+		shell: '/bin/bash'
+	});
+
+	const match = stdout.match(/request id is [^\s]+-(\d+)/i);
+	if (!match) {
+		throw new Error(`Unable to parse CUPS job id from output:\n${stdout}`);
+	}
+
+	return { jobId: Number(match[1]), raw: stdout };
+}
+
+/**
+ * Best-effort deletion of a file. Swallow errors so the `finally`
+ * block of the caller never throws.
+ */
+export async function safeUnlink(filePath: string): Promise<void> {
+	const { unlink } = await import('node:fs/promises');
+	try {
+		await unlink(filePath);
+	} catch {
+		/* ignore — file may already be gone */
+	}
+}

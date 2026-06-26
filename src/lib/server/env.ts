@@ -1,0 +1,41 @@
+/**
+ * Centralised, type-safe access to private environment variables.
+ *
+ * SvelteKit only exposes `$env/static/private` to server-side code, so
+ * this module is safe to import from any `+page.server.ts`,
+ * `+server.ts`, or `hooks.server.ts`.
+ */
+import { env } from '$env/dynamic/private';
+
+interface ServerEnv {
+	pocketbaseUrl: string;
+	printerName: string;
+	tempDir: string;
+	defaultQuotaPages: number;
+}
+
+function readEnv(): ServerEnv {
+	const pocketbaseUrl = env.PRIVATE_POCKETBASE_URL;
+	const printerName = env.PRIVATE_PRINTER_NAME;
+	const tempDir = env.PRIVATE_TEMP_DIR;
+	const defaultQuotaPages = env.PRIVATE_DEFAULT_QUOTA_PAGES;
+
+	if (!pocketbaseUrl) {
+		throw new Error('Missing PRIVATE_POCKETBASE_URL environment variable.');
+	}
+	if (!printerName) {
+		throw new Error('Missing PRIVATE_PRINTER_NAME environment variable.');
+	}
+
+	return {
+		pocketbaseUrl: pocketbaseUrl.replace(/\/+$/, ''),
+		printerName,
+		tempDir: tempDir && tempDir.length > 0 ? tempDir : '/tmp',
+		defaultQuotaPages:
+			defaultQuotaPages && Number.isFinite(Number(defaultQuotaPages))
+				? Math.max(0, Math.floor(Number(defaultQuotaPages)))
+				: 0
+	};
+}
+
+export const serverEnv: ServerEnv = readEnv();
