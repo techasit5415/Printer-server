@@ -253,8 +253,14 @@ export const actions: Actions = {
 			}
 
 			// Try to refund the reservation and mark the job as failed.
+			// Capture the refund outcome so we can surface it in the UI
+			// — silently swallowed refund failures used to leave the
+			// user's quota "stuck" (deducted but not returned) after
+			// a failed print, with no signal that anything was wrong.
+			let refundOk = false;
 			try {
 				await refundQuota(pb, locals.user.id, estimatedPages);
+				refundOk = true;
 			} catch (refundErr) {
 				console.error('[user/print] refund failed:', refundErr);
 			}
@@ -276,10 +282,11 @@ export const actions: Actions = {
 				pbFieldErrors && Object.keys(pbFieldErrors).length > 0
 					? ` (ฟิลด์ที่มีปัญหา: ${Object.keys(pbFieldErrors).join(', ')})`
 					: '';
+			const refundNote = refundOk ? '' : ' (คืนโควต้าไม่สำเร็จ — โควต้าอาจถูกหักค้างไว้ กรุณาแจ้ง admin)';
 			const message =
 				err instanceof Error
-					? `ส่งงานพิมพ์ไม่สำเร็จ: ${err.message}${fieldHint}`
-					: 'ไม่สามารถส่งงานพิมพ์ได้ กรุณาลองใหม่';
+					? `ส่งงานพิมพ์ไม่สำเร็จ: ${err.message}${fieldHint}${refundNote}`
+					: `ไม่สามารถส่งงานพิมพ์ได้ กรุณาลองใหม่${refundNote}`;
 
 			return { ok: false, message };
 		} finally {
