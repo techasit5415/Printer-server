@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { enhance } from '$app/forms';
-	import { Upload, X } from '@lucide/svelte';
+	import { Check, Copy, FileText, Minus, Plus, Upload, X } from '@lucide/svelte';
 	import AlertBanner from '$lib/components/AlertBanner.svelte';
 	import Button from '$lib/components/Button.svelte';
 	import QuotaBar from '$lib/components/QuotaBar.svelte';
@@ -10,43 +10,66 @@
 	let { data, form }: { data: PageData; form: ActionData } = $props();
 
 	let submitting = $state(false);
-	let copies = $state(1);
 	let dragOver = $state(false);
 
-	// Refs for the upload form — there is no visible submit button,
-	// so the form has to be triggered programmatically when the user
-	// picks a file via the hidden `<input type="file">` or drops one
-	// onto the drop zone. Without this the form silently does
-	// nothing on selection (which is why "อัพไฟล์ไม่ได้" was
-	// reported as a no-op rather than a thrown error).
+	// Two-step upload flow state. `selectedFile` is the staged file
+	// the user picked or dropped; the actual `?/print` submit only
+	// fires after they confirm the preview panel (layout + copies).
+	let selectedFile = $state<File | null>(null);
+	let pagesPerSheet = $state<1 | 4>(1);
+	let copies = $state(1);
+
+	// Refs for the upload form — submitted only when the user clicks
+	// "ยืนยันพิมพ์" in the preview panel.
 	let uploadFormEl: HTMLFormElement | null = null;
 	let uploadFileEl: HTMLInputElement | null = null;
 
-	function submitUpload(): void {
-		if (uploadFormEl && uploadFileEl?.files && uploadFileEl.files.length > 0) {
-			uploadFormEl.requestSubmit();
-		}
+	// Human-readable file size.
+	function fileSize(bytes: number): string {
+		if (bytes < 1024) return `${bytes} B`;
+		if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+		return `${(bytes / 1024 / 1024).toFixed(1)} MB`;
+	}
+
+	function stageFile(file: File): void {
+		if (!uploadFileEl) return;
+		// Assign the dropped/picked file to the hidden `<input type="file">`
+		// so it serialises into the multipart form data on submit.
+		// `DataTransfer` is the only spec-blessed way to set `input.files`.
+		const dt = new DataTransfer();
+		dt.items.add(file);
+		uploadFileEl.files = dt.files;
+		selectedFile = file;
+		// Reset print settings each time a new file is staged.
+		pagesPerSheet = 1;
+		copies = 1;
+	}
+
+	function clearStaged(): void {
+		selectedFile = null;
+		if (uploadFileEl) uploadFileEl.files = null;
 	}
 
 	function onFileChosen(): void {
-		submitUpload();
+		const file = uploadFileEl?.files?.[0];
+		if (file) stageFile(file);
 	}
 
 	function onDropUpload(e: DragEvent): void {
 		e.preventDefault();
 		dragOver = false;
 		const file = e.dataTransfer?.files?.[0];
-		if (!file || !uploadFileEl) return;
+		if (file) stageFile(file);
+	}
 
-		// Move the dropped file onto the hidden `<input type="file">`
-		// so it gets serialised into the multipart form data, then
-		// trigger the submit. `DataTransfer` is the only spec-blessed
-		// way to assign to `input.files` programmatically.
-		const dt = new DataTransfer();
-		dt.items.add(file);
-		uploadFileEl.files = dt.files;
+	function bumpCopies(delta: number): void {
+		copies = Math.min(99, Math.max(1, copies + delta));
+	}
 
-		submitUpload();
+	function confirmPrint(): void {
+		if (uploadFormEl && uploadFileEl?.files && uploadFileEl.files.length > 0) {
+			uploadFormEl.requestSubmit();
+		}
 	}
 
 	/**
@@ -120,6 +143,7 @@
 	</section>
 
 	<!-- ── Upload area ───────────────────────────────────────────────── -->
+	<!-- ── Upload + confirmation (2-step flow) ───────────────────── -->
 	<section class="mb-8">
 		<form
 			bind:this={uploadFormEl}
@@ -131,46 +155,196 @@
 				return async ({ update }) => {
 					await update();
 					submitting = false;
+					clearStaged();
 				};
 			}}
 		>
-			<label
-				class={`flex cursor-pointer flex-col items-center justify-center rounded-md border-2 border-dashed px-6 py-12 text-center transition-colors ${
-					dragOver
-						? 'border-accent bg-accent-soft'
-						: 'border-strong-app bg-elevated hover:border-accent hover:bg-accent-soft/40'
-				}`}
-				ondragover={(e) => {
-					e.preventDefault();
-					dragOver = true;
-				}}
-				ondragleave={() => (dragOver = false)}
-				ondrop={onDropUpload}
-			>
-				<Upload
-					class={`mb-3 h-7 w-7 ${dragOver ? 'text-accent' : 'text-muted-app'}`}
-				/>
-				<p class="text-base font-medium text-fg-app">
-					{submitting ? 'กำลังส่งงานพิมพ์...' : 'คลิกหรือลากไฟล์มาวางที่นี่เพื่อพิมพ์'}
-				</p>
-				<!-- <p class="text-base font-medium text-fg-app">
-					{submitting ? 'กำลังส่งงานพิมพ์...' : 'คลิกหรือลากไฟล์มาวางที่นี่เพื่อพิมพ์'}
-				</p> -->
-				<p class="mt-1 text-xs text-muted-app">
-					รองรับ PDF / PS / JPG / PNG / TXT (สูงสุด 25MB)
-				</p>
-				<input
-					bind:this={uploadFileEl}
-					name="file"
-					type="file"
-					required
-					accept=".pdf,.ps,.jpg,.jpeg,.png,.txt,application/pdf,application/postscript,image/jpeg,image/png,text/plain"
-					class="sr-only"
-					onchange={onFileChosen}
-				/>
-				<input type="hidden" name="copies" value={copies} />
-				<input type="hidden" name="sides" value="one-sided" />
-			</label>
+			<!-- Hidden file input — kept in the DOM so the multipart
+			     form can submit it. The label below uses `for=` to
+			     trigger it on click; without that link the drop zone
+			     is just visual because the input sits outside the
+			     <label> (no implicit association). -->
+			<input
+				id="upload-file-input"
+				bind:this={uploadFileEl}
+				name="file"
+				type="file"
+				required
+				accept=".pdf,.ps,.jpg,.jpeg,.png,.txt,application/pdf,application/postscript,image/jpeg,image/png,text/plain"
+				class="sr-only"
+				onchange={onFileChosen}
+			/>
+			<input type="hidden" name="sides" value="one-sided" />
+			<input type="hidden" name="pagesPerSheet" value={pagesPerSheet} />
+			<input type="hidden" name="copies" value={copies} />
+
+			{#if !selectedFile}
+				<!-- Step 1: drop zone. -->
+				<label
+					for="upload-file-input"
+					class={`flex cursor-pointer flex-col items-center justify-center rounded-md border-2 border-dashed px-6 py-12 text-center transition-colors ${
+						dragOver
+							? 'border-accent bg-accent-soft'
+							: 'border-strong-app bg-elevated hover:border-accent hover:bg-accent-soft/40'
+					}`}
+					ondragover={(e) => {
+						e.preventDefault();
+						dragOver = true;
+					}}
+					ondragleave={() => (dragOver = false)}
+					ondrop={onDropUpload}
+				>
+					<Upload
+						class={`mb-3 h-7 w-7 ${dragOver ? 'text-accent' : 'text-muted-app'}`}
+					/>
+					<p class="text-base font-medium text-fg-app">
+						คลิกหรือลากไฟล์มาวางที่นี่เพื่อพิมพ์
+					</p>
+					<p class="mt-1 text-xs text-muted-app">
+						รองรับ PDF / PS / JPG / PNG / TXT (สูงสุด 50MB)
+					</p>
+				</label>
+			{:else}
+				<!-- Step 2: confirmation panel. -->
+				{@const oneUpActive = pagesPerSheet === 1}
+				{@const fourUpActive = pagesPerSheet === 4}
+				<div class="rounded-md border border-strong-app bg-surface p-6 transition-colors">
+					<!-- File header -->
+					<div class="flex items-start justify-between gap-4 border-b border-app pb-4">
+						<div class="flex items-start gap-3 min-w-0">
+							<div
+								class="flex h-10 w-10 shrink-0 items-center justify-center rounded-md bg-accent-soft text-accent"
+							>
+								<FileText class="h-5 w-5" />
+							</div>
+							<div class="min-w-0">
+								<p class="truncate text-sm font-medium text-fg-app">
+									{selectedFile.name}
+								</p>
+								<p class="mt-0.5 text-xs text-muted-app">
+									{fileSize(selectedFile.size)} · {selectedFile.type || 'ไม่ทราบชนิด'}
+								</p>
+							</div>
+						</div>
+						<button
+							type="button"
+							onclick={clearStaged}
+							disabled={submitting}
+							class="rounded-md p-1 text-muted-app hover:bg-elevated hover:text-fg-app disabled:opacity-50"
+							title="ยกเลิก"
+							aria-label="ยกเลิกการเลือกไฟล์"
+						>
+							<X class="h-4 w-4" />
+						</button>
+					</div>
+
+					<!-- Page layout toggle -->
+					<div class="mt-5">
+						<p class="text-sm text-fg-app">จัดหน้า</p>
+						<div class="mt-2 grid grid-cols-2 gap-3">
+							<button
+								type="button"
+								onclick={() => (pagesPerSheet = 1)}
+								disabled={submitting}
+								class={`flex flex-col items-center gap-2 rounded-md border p-4 text-center transition-colors disabled:opacity-50 ${
+									oneUpActive
+										? 'border-accent bg-accent-soft ring-2 ring-accent/30'
+										: 'border-strong-app bg-app hover:border-accent/60'
+								}`}
+							>
+								<div class="flex h-16 w-12 items-center justify-center border border-strong-app bg-surface">
+									<span class="text-[10px] text-muted-app">1</span>
+								</div>
+								<div class="flex items-center gap-1.5">
+									{#if oneUpActive}
+										<Check class="h-3.5 w-3.5 text-accent" />
+									{/if}
+									<span class="text-xs">1 หน้าต่อแผ่น</span>
+								</div>
+							</button>
+							<button
+								type="button"
+								onclick={() => (pagesPerSheet = 4)}
+								disabled={submitting}
+								class={`flex flex-col items-center gap-2 rounded-md border p-4 text-center transition-colors disabled:opacity-50 ${
+									fourUpActive
+										? 'border-accent bg-accent-soft ring-2 ring-accent/30'
+										: 'border-strong-app bg-app hover:border-accent/60'
+								}`}
+							>
+								<div class="grid h-16 w-12 grid-cols-2 grid-rows-2 gap-0.5 border border-strong-app bg-surface p-0.5">
+									<div class="bg-elevated"></div>
+									<div class="bg-elevated"></div>
+									<div class="bg-elevated"></div>
+									<div class="bg-elevated"></div>
+								</div>
+								<div class="flex items-center gap-1.5">
+									{#if fourUpActive}
+										<Check class="h-3.5 w-3.5 text-accent" />
+									{/if}
+									<span class="text-xs">4 หน้าต่อแผ่น</span>
+								</div>
+							</button>
+						</div>
+					</div>
+
+					<!-- Copies stepper -->
+					<div class="mt-5">
+						<p class="text-sm text-fg-app">จำนวนชุด</p>
+						<div class="mt-2 flex items-center gap-2">
+							<button
+								type="button"
+								onclick={() => bumpCopies(-1)}
+								disabled={submitting || copies <= 1}
+								class="flex h-9 w-9 items-center justify-center rounded-md border border-strong-app bg-app text-fg-app hover:bg-elevated disabled:opacity-50"
+								aria-label="ลดจำนวน"
+							>
+								<Minus class="h-4 w-4" />
+							</button>
+							<input
+								type="number"
+								min="1"
+								max="99"
+								bind:value={copies}
+								disabled={submitting}
+								class="w-20 rounded-md border border-strong-app bg-app py-1.5 text-center text-base text-fg-app focus:border-accent focus:outline-none focus:ring-2 focus:ring-accent/30 disabled:opacity-50"
+							/>
+							<button
+								type="button"
+								onclick={() => bumpCopies(+1)}
+								disabled={submitting || copies >= 99}
+								class="flex h-9 w-9 items-center justify-center rounded-md border border-strong-app bg-app text-fg-app hover:bg-elevated disabled:opacity-50"
+								aria-label="เพิ่มจำนวน"
+							>
+								<Plus class="h-4 w-4" />
+							</button>
+							<span class="text-xs text-muted-app">ชุด (สูงสุด 99)</span>
+						</div>
+					</div>
+
+					<!-- Confirm + cancel row -->
+					<div class="mt-6 flex items-center justify-end gap-2">
+						<Button
+							variant="ghost"
+							size="md"
+							type="button"
+							onclick={clearStaged}
+							disabled={submitting}
+						>
+							ยกเลิก
+						</Button>
+						<Button
+							variant="primary"
+							size="md"
+							type="button"
+							onclick={confirmPrint}
+							disabled={submitting || copies < 1}
+						>
+							{submitting ? 'กำลังส่ง...' : 'ยืนยันพิมพ์'}
+						</Button>
+					</div>
+				</div>
+			{/if}
 		</form>
 	</section>
 

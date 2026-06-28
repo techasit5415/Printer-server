@@ -22,6 +22,8 @@ export interface SubmitOptions {
 	sides?: 'one-sided' | 'two-sided-long-edge' | 'two-sided-short-edge';
 	/** Optional explicit media size, e.g. "A4", "Letter". */
 	media?: string;
+	/** Pages per sheet (N-up) — 1, 2, or 4. Defaults to 1 (full size). */
+	pagesPerSheet?: 1 | 2 | 4;
 }
 
 export interface SubmitResult {
@@ -69,6 +71,8 @@ export async function submitPrintJob(opts: SubmitOptions): Promise<SubmitResult>
 		`sides=${sides}`
 	];
 	if (media) args.push('-o', `media=${media}`);
+	const nup = opts.pagesPerSheet ?? 1;
+	if (nup > 1) args.push('-o', `number-up=${nup}`);
 	args.push(opts.filePath);
 
 	const cmd = `lp ${args.map((a) => `'${a.replace(/'/g, `'\\''`)}'`).join(' ')}`;

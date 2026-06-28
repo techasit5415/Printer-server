@@ -13,7 +13,7 @@ import { serverEnv } from '$lib/server/env';
 import type { PageServerLoad } from './$types';
 
 // ─── Tunables ────────────────────────────────────────────────────────────────
-const MAX_FILE_BYTES = 25 * 1024 * 1024; // 25 MiB hard cap (per the new UI copy)
+const MAX_FILE_BYTES = 50 * 1024 * 1024; // 25 MiB hard cap (per the new UI copy)
 
 /**
  * Type guard for PocketBase SDK errors. `ClientResponseError` carries
@@ -126,6 +126,10 @@ export const actions: Actions = {
 			sidesRawStr === 'two-sided-long-edge' || sidesRawStr === 'two-sided-short-edge'
 				? sidesRawStr
 				: 'one-sided';
+		// N-up layout (pages per sheet) — confirmed in the preview
+		// step before submit. Defaults to 1 (full-size pages).
+		const nupRaw = Number.parseInt(String(data.get('pagesPerSheet') ?? '1'), 10);
+		const pagesPerSheet: 1 | 2 | 4 = nupRaw === 2 || nupRaw === 4 ? nupRaw : 1;
 
 		// We don't know the page count up-front without rendering the
 		// document — conservatively charge `copies` pages and refund if
@@ -218,7 +222,8 @@ export const actions: Actions = {
 				filePath: tempPath,
 				copies,
 				title: `${locals.user.email} — ${safeName}`,
-				sides
+				sides,
+				pagesPerSheet
 			});
 
 			await pb.collection('print_jobs').update<PrintJobsRecord>(created.id, {
