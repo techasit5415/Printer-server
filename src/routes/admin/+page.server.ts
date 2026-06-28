@@ -79,7 +79,7 @@ export const load: PageServerLoad = async ({ locals }) => {
 		const q = quotasByUser.get(u.id);
 		return {
 			...u,
-			quota: q ?? { userId: u.id, remaining: 0, total: 0, used: 0 }
+			quota: q ?? { userId: u.id, remaining: 0, total: 0, used: 0, tierTotal: 0 }
 		};
 	});
 

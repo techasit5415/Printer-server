@@ -255,7 +255,7 @@
 							<td class="px-6 py-4 text-slate-700">
 								{u.role === 'admin' ? 'ผู้ดูแลระบบ' : 'พนักงาน'}
 							</td>
-							<td class="px-6 py-4 text-slate-700">{quota.total} หน้า / เดือน</td>
+							<td class="px-6 py-4 text-slate-700">{quota.tierTotal} หน้า / เดือน</td>
 							<td class="px-6 py-4">
 								<div class="text-sm font-medium text-slate-900">
 									<span class={quota.remaining <= 0 ? 'text-red-600' : ''}>

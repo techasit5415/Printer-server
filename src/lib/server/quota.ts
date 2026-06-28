@@ -104,6 +104,41 @@ async function resolveTotal(pb: AppPocketBase, row: QuotaRow | null): Promise<nu
 }
 
 /**
+ * Resolve the master tier value for a Quota row — STRICTLY from the
+ * linked `Total_Quota` package via the `Quota` relation. This is the
+ * value the admin table shows in the "สิทธิ์หลัก" column and what
+ * "reset" re-syncs the per-user ceiling back to. Used to be
+ * conflated with `resolveTotal`; split out so the per-user ceiling
+ * and the master tier can drift independently when admin grants
+ * bonus pages via "+ เพิ่มโควต้า".
+ *
+ * If the relation is missing (legacy row, package deleted), fall
+ * back to the env default rather than the per-user number — the
+ * tier label must not silently track admin bonus grants.
+ */
+async function resolveTierTotal(pb: AppPocketBase, row: QuotaRow | null): Promise<number> {
+	const pkg = row?.expand?.Quota;
+	if (typeof pkg?.Total_Quota === 'number' && Number.isFinite(pkg.Total_Quota)) {
+		return clampInt(pkg.Total_Quota);
+	}
+
+	if (row?.Quota) {
+		try {
+			const direct = (await pb
+				.collection('Total_Quota')
+				.getOne<TotalQuotaPackage>(row.Quota)) as TotalQuotaPackage;
+			if (typeof direct.Total_Quota === 'number' && Number.isFinite(direct.Total_Quota)) {
+				return clampInt(direct.Total_Quota);
+			}
+		} catch {
+			/* fall through */
+		}
+	}
+
+	return serverEnv.defaultQuotaPages;
+}
+
+/**
  * Read-modify-write a user's Quota row with a CAS retry loop. Lazily
  * creates the row — seeded with the env default ceiling — on first
  * write. The row's own `Total_Quota` number is the per-user ceiling.
@@ -254,31 +289,52 @@ export async function adjustRemaining(
 }
 
 /**
- * Admin "รีเซ็ต" — zero out `Use`. The ceiling stays where it is,
- * so `remaining` snaps back to `total`.
+ * Admin "รีเซ็ต" — re-sync the per-user ceiling back to the master
+ * tier value (pulled from the `Quota` relation) and zero out `Use`.
+ * Any bonus granted via "+ เพิ่มโควต้า" is wiped — the user is
+ * back to their tier default. If the user has no `Quota` row yet,
+ * one is created with the env default ceiling.
  */
 export async function resetToDefault(
 	pb: AppPocketBase,
 	userId: string
 ): Promise<QuotaSnapshot> {
-	return mutate(pb, userId, () => ({
-		remaining: 0,
-		used: 0,
-		total: 0
-	}));
+	const row = await findUserQuota(pb, userId);
+	const tierTotal = await resolveTierTotal(pb, row);
+
+	if (!row) {
+		await pb.collection('Quota').create({
+			relation: userId,
+			Total_Quota: tierTotal,
+			Use: 0
+		});
+		return { remaining: tierTotal, used: 0, total: tierTotal };
+	}
+
+	await pb.collection('Quota').update(row.id, {
+		Total_Quota: tierTotal,
+		Use: 0
+	});
+
+	return { remaining: tierTotal, used: 0, total: tierTotal };
 }
 
 /**
- * Bulk quota snapshot for the admin table — one round-trip. `total`
- * comes from each user's own per-user `Total_Quota` number on the
- * row (via `resolveTotal`, which may fall back to the legacy
- * package relation for rows that haven't been migrated yet).
+ * Bulk quota snapshot for the admin table — one round-trip.
+ *
+ *   `total`     — the per-user ceiling (from the row's `Total_Quota`
+ *                 number, possibly grown by admin "+N"). Drives the
+ *                 "remaining" / progress bar.
+ *   `tierTotal` — the master tier value pulled from the `Quota`
+ *                 relation (the user's package). Drives the
+ *                 "สิทธิ์หลัก" column. Independent of admin grants.
  */
 export interface UserQuotaRow {
 	userId: string;
 	remaining: number;
 	total: number;
 	used: number;
+	tierTotal: number;
 }
 
 export async function listAllQuotas(
@@ -292,12 +348,14 @@ export async function listAllQuotas(
 	for (const r of rows) {
 		if (!r.relation) continue;
 		const total = await resolveTotal(pb, r);
+		const tierTotal = await resolveTierTotal(pb, r);
 		const used = clampInt(Number(r.Use), 0);
 		out.set(r.relation, {
 			userId: r.relation,
 			remaining: Math.max(0, total - used),
 			used,
-			total
+			total,
+			tierTotal
 		});
 	}
 	return out;
