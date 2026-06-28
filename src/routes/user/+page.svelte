@@ -1,6 +1,16 @@
 <script lang="ts">
 	import { enhance } from '$app/forms';
-	import { Check, Copy, FileText, Minus, Plus, Upload, X } from '@lucide/svelte';
+	import {
+		BookOpen,
+		Check,
+		FileText,
+		Minus,
+		NotebookPen,
+		Plus,
+		Printer,
+		Upload,
+		X
+	} from '@lucide/svelte';
 	import AlertBanner from '$lib/components/AlertBanner.svelte';
 	import Button from '$lib/components/Button.svelte';
 	import QuotaBar from '$lib/components/QuotaBar.svelte';
@@ -14,10 +24,14 @@
 
 	// Two-step upload flow state. `selectedFile` is the staged file
 	// the user picked or dropped; the actual `?/print` submit only
-	// fires after they confirm the preview panel (layout + copies).
+	// fires after they confirm the preview panel.
 	let selectedFile = $state<File | null>(null);
 	let pagesPerSheet = $state<1 | 4>(1);
 	let copies = $state(1);
+	let sides = $state<'one-sided' | 'two-sided-long-edge' | 'two-sided-short-edge'>(
+		'one-sided'
+	);
+	let color = $state<'color' | 'mono'>('color');
 
 	// Refs for the upload form — submitted only when the user clicks
 	// "ยืนยันพิมพ์" in the preview panel.
@@ -174,7 +188,8 @@
 				class="sr-only"
 				onchange={onFileChosen}
 			/>
-			<input type="hidden" name="sides" value="one-sided" />
+			<input type="hidden" name="sides" value={sides} />
+			<input type="hidden" name="color" value={color} />
 			<input type="hidden" name="pagesPerSheet" value={pagesPerSheet} />
 			<input type="hidden" name="copies" value={copies} />
 
@@ -208,6 +223,11 @@
 				<!-- Step 2: confirmation panel. -->
 				{@const oneUpActive = pagesPerSheet === 1}
 				{@const fourUpActive = pagesPerSheet === 4}
+				{@const oneSidedActive = sides === 'one-sided'}
+				{@const longEdgeActive = sides === 'two-sided-long-edge'}
+				{@const shortEdgeActive = sides === 'two-sided-short-edge'}
+				{@const colorActive = color === 'color'}
+				{@const monoActive = color === 'mono'}
 				<div class="rounded-md border border-strong-app bg-surface p-6 transition-colors">
 					<!-- File header -->
 					<div class="flex items-start justify-between gap-4 border-b border-app pb-4">
@@ -284,6 +304,90 @@
 									{/if}
 									<span class="text-xs">4 หน้าต่อแผ่น</span>
 								</div>
+							</button>
+						</div>
+					</div>
+
+					<!-- Sides (1-sided / 2-sided long edge / 2-sided short edge) -->
+					<div class="mt-5">
+						<p class="text-sm text-fg-app">การพิมพ์ 2 ด้าน</p>
+						<div class="mt-2 grid grid-cols-3 gap-2">
+							<button
+								type="button"
+								onclick={() => (sides = 'one-sided')}
+								disabled={submitting}
+								class={`flex flex-col items-center gap-1.5 rounded-md border p-3 text-center transition-colors disabled:opacity-50 ${
+									oneSidedActive
+										? 'border-accent bg-accent-soft ring-2 ring-accent/30'
+										: 'border-strong-app bg-app hover:border-accent/60'
+								}`}
+							>
+								<Printer class="h-5 w-5 text-muted-app" />
+								<span class="text-xs">1 ด้าน</span>
+							</button>
+							<button
+								type="button"
+								onclick={() => (sides = 'two-sided-long-edge')}
+								disabled={submitting}
+								class={`flex flex-col items-center gap-1.5 rounded-md border p-3 text-center transition-colors disabled:opacity-50 ${
+									longEdgeActive
+										? 'border-accent bg-accent-soft ring-2 ring-accent/30'
+										: 'border-strong-app bg-app hover:border-accent/60'
+								}`}
+							>
+								<BookOpen class="h-5 w-5 text-muted-app" />
+								<span class="text-xs">2 ด้าน (ยาว)</span>
+							</button>
+							<button
+								type="button"
+								onclick={() => (sides = 'two-sided-short-edge')}
+								disabled={submitting}
+								class={`flex flex-col items-center gap-1.5 rounded-md border p-3 text-center transition-colors disabled:opacity-50 ${
+									shortEdgeActive
+										? 'border-accent bg-accent-soft ring-2 ring-accent/30'
+										: 'border-strong-app bg-app hover:border-accent/60'
+								}`}
+							>
+								<NotebookPen class="h-5 w-5 text-muted-app" />
+								<span class="text-xs">2 ด้าน (สั้น)</span>
+							</button>
+						</div>
+					</div>
+
+					<!-- Colour mode (colour / mono) -->
+					<div class="mt-5">
+						<p class="text-sm text-fg-app">สี</p>
+						<div class="mt-2 grid grid-cols-2 gap-2">
+							<button
+								type="button"
+								onclick={() => (color = 'color')}
+								disabled={submitting}
+								class={`flex flex-col items-center gap-1.5 rounded-md border p-3 text-center transition-colors disabled:opacity-50 ${
+									colorActive
+										? 'border-accent bg-accent-soft ring-2 ring-accent/30'
+										: 'border-strong-app bg-app hover:border-accent/60'
+								}`}
+							>
+								<div class="flex gap-0.5">
+									<div class="h-3 w-2 rounded-sm bg-danger"></div>
+									<div class="h-3 w-2 rounded-sm bg-warning"></div>
+									<div class="h-3 w-2 rounded-sm bg-accent"></div>
+									<div class="h-3 w-2 rounded-sm bg-success"></div>
+								</div>
+								<span class="text-xs">สี</span>
+							</button>
+							<button
+								type="button"
+								onclick={() => (color = 'mono')}
+								disabled={submitting}
+								class={`flex flex-col items-center gap-1.5 rounded-md border p-3 text-center transition-colors disabled:opacity-50 ${
+									monoActive
+										? 'border-accent bg-accent-soft ring-2 ring-accent/30'
+										: 'border-strong-app bg-app hover:border-accent/60'
+								}`}
+							>
+								<div class="h-3 w-8 rounded-sm bg-fg-app"></div>
+								<span class="text-xs">ขาวดำ</span>
 							</button>
 						</div>
 					</div>

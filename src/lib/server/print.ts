@@ -24,6 +24,8 @@ export interface SubmitOptions {
 	media?: string;
 	/** Pages per sheet (N-up) — 1, 2, or 4. Defaults to 1 (full size). */
 	pagesPerSheet?: 1 | 2 | 4;
+	/** Colour mode — defaults to "color". */
+	color?: 'color' | 'mono';
 }
 
 export interface SubmitResult {
@@ -73,6 +75,9 @@ export async function submitPrintJob(opts: SubmitOptions): Promise<SubmitResult>
 	if (media) args.push('-o', `media=${media}`);
 	const nup = opts.pagesPerSheet ?? 1;
 	if (nup > 1) args.push('-o', `number-up=${nup}`);
+	// Colour mode: defaults to colour. Mono prints black-and-white on
+	// a colour printer, saving toner/ink.
+	if (opts.color === 'mono') args.push('-o', 'print-color-mode=monochrome');
 	args.push(opts.filePath);
 
 	const cmd = `lp ${args.map((a) => `'${a.replace(/'/g, `'\\''`)}'`).join(' ')}`;

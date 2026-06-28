@@ -131,6 +131,11 @@ export const actions: Actions = {
 		const nupRaw = Number.parseInt(String(data.get('pagesPerSheet') ?? '1'), 10);
 		const pagesPerSheet: 1 | 2 | 4 = nupRaw === 2 || nupRaw === 4 ? nupRaw : 1;
 
+		// Colour mode — defaults to colour. Mono prints B&W on a
+		// colour printer, saving toner/ink.
+		const colorRaw = String(data.get('color') ?? 'color');
+		const color: 'color' | 'mono' = colorRaw === 'mono' ? 'mono' : 'color';
+
 		// We don't know the page count up-front without rendering the
 		// document — conservatively charge `copies` pages and refund if
 		// CUPS reports zero / cancels.
@@ -223,7 +228,8 @@ export const actions: Actions = {
 				copies,
 				title: `${locals.user.email} — ${safeName}`,
 				sides,
-				pagesPerSheet
+				pagesPerSheet,
+				color
 			});
 
 			await pb.collection('print_jobs').update<PrintJobsRecord>(created.id, {
