@@ -19,6 +19,54 @@
 	// over the server-rendered list.
 	let query = $state('');
 
+	// Bulk-selection state for the user-quotas table. A `Set` so we
+	// can answer "is this row selected?" in O(1) per render and so
+	// "select all" / "clear" rebuild a fresh set without aliasing.
+	let selectedIds = $state(new Set<string>());
+
+	// Ref to the header "select all" checkbox — needed because the
+	// `indeterminate` property is a DOM-only flag with no attribute
+	// equivalent. We sync it from a `$effect` whenever the selection
+	// count crosses the partial boundary. Plain `let` is fine here:
+	// `bind:this` only writes once on mount and the `$effect` runs
+	// after mount, so we don't need reactive state.
+	let selectAllEl: HTMLInputElement | null = null;
+
+	function toggleOne(id: string, checked: boolean): void {
+		const next = new Set(selectedIds);
+		if (checked) next.add(id);
+		else next.delete(id);
+		selectedIds = next;
+	}
+
+	function toggleAll(checked: boolean): void {
+		selectedIds = checked ? new Set(filteredUsers.map((u) => u.id)) : new Set();
+	}
+
+	function clearSelection(): void {
+		selectedIds = new Set();
+	}
+
+	/**
+	 * `use:enhance` callback shared by both bulk-action forms.
+	 * Default behaviour (rerender `data` + populate `form`) runs via
+	 * `await update()`, then we clear the selection on success so
+	 * the next bulk op starts from an empty slate.
+	 */
+	function clearOnSuccess() {
+		return async ({ result, update }: { result: { type: string }; update: () => Promise<void> }) => {
+			await update();
+			if (result.type === 'success') selectedIds = new Set();
+		};
+	}
+
+	$effect(() => {
+		if (!selectAllEl) return;
+		const total = filteredUsers.length;
+		const sel = selectedIds.size;
+		selectAllEl.indeterminate = sel > 0 && sel < total;
+	});
+
 	let filteredUsers = $derived.by(() => {
 		const q = query.trim().toLowerCase();
 		if (!q) return data.users;
@@ -227,12 +275,100 @@
 			</div>
 		</div>
 
+		<!-- Bulk action bar — visible whenever there's at least one row.
+		     Disabled state of the buttons reflects the selection count;
+		     the summary text on the left tells the admin what's queued. -->
+		{#if filteredUsers.length > 0}
+			<div
+				class="flex flex-wrap items-center gap-3 border-b border-slate-200 bg-slate-50 px-6 py-3"
+			>
+				<span class="text-sm text-slate-600">
+					{#if selectedIds.size === 0}
+						ยังไม่ได้เลือกผู้ใช้ — ติ๊ก checkbox เพื่อทำ bulk action
+					{:else if selectedIds.size === filteredUsers.length}
+						เลือกทั้งหมด {selectedIds.size} คน
+					{:else}
+						เลือก {selectedIds.size} จาก {filteredUsers.length} คน
+					{/if}
+				</span>
+
+				<div class="ml-auto flex items-center gap-2">
+					<form
+						method="POST"
+						action="?/bulkAdjustQuota"
+						use:enhance={clearOnSuccess}
+						class="flex items-center gap-1"
+					>
+						{#each [...selectedIds] as id (id)}
+							<input type="hidden" name="userIds" value={id} />
+						{/each}
+						<div class="relative">
+							<Plus
+								class="pointer-events-none absolute left-1.5 top-1/2 h-3 w-3 -translate-y-1/2 text-blue-500"
+							/>
+							<input
+								type="number"
+								name="delta"
+								min="1"
+								step="1"
+								required
+								placeholder="จำนวน"
+								title="จำนวนหน้าที่จะเพิ่ม (ใส่ค่าลบได้)"
+								class="w-20 rounded-md border border-blue-200 bg-white py-1 pl-6 pr-2 text-xs font-mono text-slate-700 focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
+							/>
+						</div>
+						<button
+							type="submit"
+							disabled={selectedIds.size === 0}
+							class="inline-flex items-center rounded-md border border-blue-200 bg-blue-50 px-2.5 py-1 text-xs font-medium text-blue-700 hover:bg-blue-100 disabled:cursor-not-allowed disabled:opacity-50"
+						>
+							เพิ่ม (ที่เลือก)
+						</button>
+					</form>
+
+					<form method="POST" action="?/bulkResetQuota" use:enhance={clearOnSuccess}>
+						{#each [...selectedIds] as id (id)}
+							<input type="hidden" name="userIds" value={id} />
+						{/each}
+						<button
+							type="submit"
+							disabled={selectedIds.size === 0}
+							class="inline-flex items-center gap-1 rounded-md border border-slate-300 bg-white px-2.5 py-1 text-xs font-medium text-slate-700 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50"
+						>
+							<RefreshCw class="h-3 w-3" />
+							รีเซ็ต (ที่เลือก)
+						</button>
+					</form>
+
+					<button
+						type="button"
+						onclick={clearSelection}
+						disabled={selectedIds.size === 0}
+						class="inline-flex items-center rounded-md px-2.5 py-1 text-xs font-medium text-slate-500 hover:text-slate-700 disabled:cursor-not-allowed disabled:opacity-50"
+					>
+						ล้างการเลือก
+					</button>
+				</div>
+			</div>
+		{/if}
+
 		<div class="overflow-x-auto">
 			<table class="w-full text-sm">
 				<thead
 					class="border-b border-slate-200 text-xs uppercase tracking-wide text-slate-500"
 				>
 					<tr>
+						<th class="w-10 px-6 py-3 text-left font-medium">
+							<input
+								type="checkbox"
+								bind:this={selectAllEl}
+								checked={filteredUsers.length > 0 &&
+									selectedIds.size === filteredUsers.length}
+								onchange={(e) => toggleAll(e.currentTarget.checked)}
+								aria-label="เลือกผู้ใช้ทั้งหมด"
+								class="h-4 w-4 rounded border-slate-300 text-blue-600 focus:ring-blue-500"
+							/>
+						</th>
 						<th class="px-6 py-3 text-left font-medium">พนักงาน (User)</th>
 						<th class="px-6 py-3 text-left font-medium">  ยศ</th>
 						<th class="px-6 py-3 text-left font-medium">สิทธิ์หลัก</th>
@@ -247,6 +383,15 @@
 							? 0
 							: Math.max(0, Math.min(100, Math.round((quota.used / quota.total) * 100)))}
 						<tr class="hover:bg-slate-50/60">
+							<td class="px-6 py-4">
+								<input
+									type="checkbox"
+									checked={selectedIds.has(u.id)}
+									onchange={(e) => toggleOne(u.id, e.currentTarget.checked)}
+									aria-label={`เลือก ${u.name ?? u.email}`}
+									class="h-4 w-4 rounded border-slate-300 text-blue-600 focus:ring-blue-500"
+								/>
+							</td>
 							<td class="px-6 py-4">
 								<div class="font-medium text-slate-900">{u.name ?? u.email}</div>
 								<div class="mt-0.5 font-mono text-xs text-slate-500">
@@ -320,7 +465,7 @@
 						</tr>
 					{:else}
 						<tr>
-							<td colspan="5" class="px-6 py-8 text-center text-sm text-slate-500">
+							<td colspan="6" class="px-6 py-8 text-center text-sm text-slate-500">
 								ไม่พบพนักงานที่ตรงกับคำค้น
 							</td>
 						</tr>

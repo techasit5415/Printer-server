@@ -72,6 +72,42 @@ async function findUserQuota(pb: AppPocketBase, userId: string): Promise<QuotaRo
 }
 
 /**
+ * Ensure a `Total_Quota` package row exists and return it. Returns
+ * the first available package, or — if the collection is empty —
+ * creates a default one seeded with `serverEnv.defaultQuotaPages`.
+ *
+ * Used by every write site so the `Quota` relation can always be
+ * populated; previously a missing collection would silently leave
+ * the relation null.
+ */
+async function ensureDefaultPackage(pb: AppPocketBase): Promise<TotalQuotaPackage> {
+	try {
+		const existing = await pb.collection('Total_Quota').getFirstListItem<TotalQuotaPackage>('');
+		if (existing) return existing;
+	} catch {
+		/* collection empty — fall through to create */
+	}
+
+	const created = (await pb.collection('Total_Quota').create({
+		Total_Quota: serverEnv.defaultQuotaPages
+	})) as TotalQuotaPackage;
+	return created;
+}
+
+/**
+ * Pick the `Quota` relation id for a write — keeps an existing
+ * relation intact, backfills a missing one by pointing at the
+ * default `Total_Quota` package. Always returns a non-empty id
+ * (the package collection is auto-created if empty, see
+ * `ensureDefaultPackage`).
+ */
+async function pickRelationId(pb: AppPocketBase, row: QuotaRow | null): Promise<string> {
+	if (row?.Quota) return row.Quota;
+	const pkg = await ensureDefaultPackage(pb);
+	return pkg.id;
+}
+
+/**
  * Resolve the ceiling for a single Quota row. The per-user
  * `Total_Quota` NUMBER on the row itself is the source of truth —
  * "ของใครของมัน". If the field is missing/unset on the row (legacy
@@ -151,8 +187,12 @@ async function mutate(
 	let row = await findUserQuota(pb, userId);
 
 	if (!row) {
+		// First-write: create the row with the per-user ceiling AND
+		// the tier relation set, so the `Quota` link is never null on
+		// a fresh row.
 		row = (await pb.collection('Quota').create({
 			relation: userId,
+			Quota: await pickRelationId(pb, null),
 			Total_Quota: serverEnv.defaultQuotaPages,
 			Use: 0
 		})) as QuotaRow;
@@ -168,10 +208,15 @@ async function mutate(
 	const used = clampInt(Number(next.used), 0);
 	const total = await resolveTotal(pb, row);
 
-	await pb.collection('Quota').update(row.id, {
-		Use: used,
-		Total_Quota: total
-	});
+	// Backfill the `Quota` relation if a legacy row lost it (admin
+	// deleted the package, manual DB edit, etc.) — cheap to do here
+	// because we already have the row and are about to write anyway.
+	const update: Record<string, unknown> = { Use: used, Total_Quota: total };
+	if (!row.Quota) {
+		update.Quota = await pickRelationId(pb, row);
+	}
+
+	await pb.collection('Quota').update(row.id, update);
 
 	return { remaining: Math.max(0, total - used), used, total };
 }
@@ -276,10 +321,16 @@ export async function adjustRemaining(
 	if (existing) {
 		const currentTotal = await resolveTotal(pb, existing);
 		const nextTotal = clampInt(currentTotal + delta);
-		await pb.collection('Quota').update(existing.id, { Total_Quota: nextTotal });
+		// Backfill `Quota` relation on legacy rows that lost it.
+		const update: Record<string, unknown> = { Total_Quota: nextTotal };
+		if (!existing.Quota) {
+			update.Quota = await pickRelationId(pb, existing);
+		}
+		await pb.collection('Quota').update(existing.id, update);
 	} else {
 		await pb.collection('Quota').create({
 			relation: userId,
+			Quota: await pickRelationId(pb, null),
 			Total_Quota: clampInt(Math.max(serverEnv.defaultQuotaPages, serverEnv.defaultQuotaPages + delta)),
 			Use: 0
 		});
@@ -305,16 +356,22 @@ export async function resetToDefault(
 	if (!row) {
 		await pb.collection('Quota').create({
 			relation: userId,
+			Quota: await pickRelationId(pb, null),
 			Total_Quota: tierTotal,
 			Use: 0
 		});
 		return { remaining: tierTotal, used: 0, total: tierTotal };
 	}
 
-	await pb.collection('Quota').update(row.id, {
-		Total_Quota: tierTotal,
-		Use: 0
-	});
+	// Backfill `Quota` relation on legacy rows that lost it — the
+	// reset value is sourced from the tier, so the relation that
+	// *defined* that tier must be present too.
+	const update: Record<string, unknown> = { Total_Quota: tierTotal, Use: 0 };
+	if (!row.Quota) {
+		update.Quota = await pickRelationId(pb, row);
+	}
+
+	await pb.collection('Quota').update(row.id, update);
 
 	return { remaining: tierTotal, used: 0, total: tierTotal };
 }

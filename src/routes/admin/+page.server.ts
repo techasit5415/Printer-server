@@ -59,7 +59,7 @@ function decorateQueuePositions(
 
 export const load: PageServerLoad = async ({ locals }) => {
 	if (!locals.user) throw redirect(303, '/login');
-	if (locals.user.role !== 'admin') throw redirect(303, '/page-user-dashboard');
+	if (locals.user.role !== 'admin') throw redirect(303, '/user');
 
 	const pb = await createSuperuserClient();
 
@@ -147,6 +147,87 @@ export const actions: Actions = {
 			console.error('[admin/resetQuota] failed:', e);
 			return { ok: false, message: 'ไม่สามารถรีเซ็ตโควต้าได้' };
 		}
+	},
+
+	/**
+	 * Bulk "+N" — bump `Total_Quota` on every selected user's own
+	 * Quota row by the same `delta`. Runs in parallel (per-user
+	 * writes are independent — each `adjustRemaining` is per-user).
+	 */
+	bulkAdjustQuota: async ({ request, locals }) => {
+		if (!locals.user || locals.user.role !== 'admin') throw error(403, 'Forbidden');
+
+		const data = await request.formData();
+		const userIds = data
+			.getAll('userIds')
+			.map((v) => String(v))
+			.filter(Boolean);
+		const delta = Number(data.get('delta') ?? 0);
+
+		if (userIds.length === 0) {
+			return { ok: false, message: 'ยังไม่ได้เลือกผู้ใช้' };
+		}
+		if (!Number.isFinite(delta) || delta === 0) {
+			return { ok: false, message: 'จำนวนหน้าที่จะเพิ่มไม่ถูกต้อง' };
+		}
+
+		const pb = await createSuperuserClient();
+
+		const settled = await Promise.allSettled(
+			userIds.map((userId) => adjustRemaining(pb, userId, delta))
+		);
+
+		const ok = settled.filter((r) => r.status === 'fulfilled').length;
+		const failed = settled.length - ok;
+
+		if (failed === 0) {
+			return {
+				ok: true,
+				message: `เพิ่มโควต้า ${delta >= 0 ? '+' : ''}${delta} หน้า ให้ ${ok} คนเรียบร้อย`
+			};
+		}
+		console.error('[admin/bulkAdjustQuota] partial failure:', settled);
+		return {
+			ok: false,
+			message: `ปรับสำเร็จ ${ok} คน, ล้มเหลว ${failed} คน (ดู console)`
+		};
+	},
+
+	/**
+	 * Bulk "รีเซ็ต" — re-sync every selected user's per-user ceiling
+	 * back to their tier value (from the `Quota` relation) and zero
+	 * `Use`. Runs in parallel.
+	 */
+	bulkResetQuota: async ({ request, locals }) => {
+		if (!locals.user || locals.user.role !== 'admin') throw error(403, 'Forbidden');
+
+		const data = await request.formData();
+		const userIds = data
+			.getAll('userIds')
+			.map((v) => String(v))
+			.filter(Boolean);
+
+		if (userIds.length === 0) {
+			return { ok: false, message: 'ยังไม่ได้เลือกผู้ใช้' };
+		}
+
+		const pb = await createSuperuserClient();
+
+		const settled = await Promise.allSettled(
+			userIds.map((userId) => resetToDefault(pb, userId))
+		);
+
+		const ok = settled.filter((r) => r.status === 'fulfilled').length;
+		const failed = settled.length - ok;
+
+		if (failed === 0) {
+			return { ok: true, message: `รีเซ็ตโควต้าให้ ${ok} คนเรียบร้อย` };
+		}
+		console.error('[admin/bulkResetQuota] partial failure:', settled);
+		return {
+			ok: false,
+			message: `รีเซ็ตสำเร็จ ${ok} คน, ล้มเหลว ${failed} คน (ดู console)`
+		};
 	},
 
 	suspend: async ({ request, locals }) => {

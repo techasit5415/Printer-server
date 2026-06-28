@@ -14,6 +14,28 @@ import type { PageServerLoad } from './$types';
 
 // ─── Tunables ────────────────────────────────────────────────────────────────
 const MAX_FILE_BYTES = 25 * 1024 * 1024; // 25 MiB hard cap (per the new UI copy)
+
+/**
+ * Type guard for PocketBase SDK errors. `ClientResponseError` carries
+ * the parsed response body under `response` (and `originalError`),
+ * including the per-field validation map. We use it to surface the
+ * exact field the schema rejected.
+ */
+interface PBFieldErrors {
+	[key: string]: unknown;
+}
+
+interface PBClientErrorShape {
+	status: number;
+	response?: { data?: PBFieldErrors; message?: string };
+	originalError?: { data?: PBFieldErrors };
+}
+
+function isClientResponseError(err: unknown): err is PBClientErrorShape {
+	if (typeof err !== 'object' || err === null) return false;
+	const obj = err as { status?: unknown; response?: unknown };
+	return typeof obj.status === 'number' && obj.response !== undefined;
+}
 const ALLOWED_MIME = new Set([
 	'application/pdf',
 	'application/postscript',
@@ -36,7 +58,7 @@ export const load: PageServerLoad = async ({ locals }) => {
 	// their own jobs/quota.
 
 	const pb = createPocketBaseClient();
-	pb.authStore.save({ token: locals.user.token } as never);
+	pb.authStore.save(locals.user.token);
 
 	const [quota, jobsResult] = await Promise.all([
 		getQuota(pb, locals.user.id),
@@ -111,7 +133,22 @@ export const actions: Actions = {
 		const estimatedPages = copies;
 
 		const pb = createPocketBaseClient();
-		pb.authStore.save({ token: locals.user.token } as never);
+		pb.authStore.save(locals.user.token);
+
+		// Force a fresh auth refresh so `pb.authStore.record` is
+		// populated before any create. PB's `user = @request.auth.id`
+		// rule internally joins back to the auth user record — if the
+		// client-side record is null (which `authStore.save({token})`
+		// leaves it), some rule-evaluation paths fall through to a
+		// `sql: no rows in result set` error. Refreshing ensures the
+		// SDK and server are in sync, and surfaces a 401 here if the
+		// token has gone stale.
+		try {
+			await pb.collection('users').authRefresh();
+		} catch (refreshErr) {
+			console.warn('[user/print] authRefresh failed (token may be stale):', refreshErr);
+			return { ok: false, message: 'เซสชันหมดอายุ กรุณา login ใหม่' };
+		}
 
 		// Reserve the quota BEFORE touching the disk so quota abuse is
 		// impossible regardless of what happens later.
@@ -153,16 +190,27 @@ export const actions: Actions = {
 
 			// Record the job in PB before touching CUPS — we want a
 			// durable audit trail even if the daemon is unreachable.
-			const created = await pb.collection('print_jobs').create<PrintJobsRecord>({
+			// `cups_job_id` and `error_message` are intentionally
+			// omitted from the create payload — they're populated by
+			// the update calls below (CUPS success / failure paths).
+			// Sending them as `null` was rejected by PB with a generic
+			// 400 because the schema marks them as required.
+			const jobPayload = {
 				user: locals.user.id,
 				filename: safeName,
 				status: 'pending',
 				pages: estimatedPages,
 				copies,
-				printer_name: serverEnv.printerName,
-				cups_job_id: null,
-				error_message: null
-			});
+				printer_name: serverEnv.printerName
+			};
+			// Diagnostic — PB's createRule `user = @request.auth.id`
+			// fails with "sql: no rows in result set" when the ids
+			// disagree (e.g. token bound to a deleted/renamed user).
+			// Log the payload + the auth record PB resolved from the
+			// token so a future regression is one grep away.
+			console.log('[user/print] create payload:', jobPayload);
+			console.log('[user/print] auth record:', pb.authStore.record);
+			const created = await pb.collection('print_jobs').create<PrintJobsRecord>(jobPayload);
 			jobRecordId = created.id;
 
 			// Hand the file to CUPS. This is the point of no return.
@@ -185,11 +233,30 @@ export const actions: Actions = {
 				quota: reservation
 			};
 		} catch (err) {
+			// Log the full error to the dev server console so the
+			// actual failure point (validation, mkdir, stream, PB
+			// create, CUPS submit) is debuggable. The user-facing
+			// `message` below carries the same err.message so it
+			// also appears in the UI.
+			console.error('[user/print] failed for', locals.user.id, err);
+
+			// Surface PB field-level validation details when the SDK
+			// exposes them via `response.data`. The top-level
+			// `err.message` is just "Failed to create record." which
+			// is useless — the per-field map tells us which column
+			// actually failed (e.g. `{user: {"code":"validation_required"}}`).
+			const pbFieldErrors = isClientResponseError(err)
+				? err.response?.data
+				: undefined;
+			if (pbFieldErrors && Object.keys(pbFieldErrors).length > 0) {
+				console.error('[user/print] PB field errors:', pbFieldErrors);
+			}
+
 			// Try to refund the reservation and mark the job as failed.
 			try {
 				await refundQuota(pb, locals.user.id, estimatedPages);
-			} catch {
-				/* swallow — log elsewhere */
+			} catch (refundErr) {
+				console.error('[user/print] refund failed:', refundErr);
 			}
 			if (jobRecordId) {
 				try {
@@ -202,8 +269,17 @@ export const actions: Actions = {
 				}
 			}
 
+			// Build a user-facing message that includes the PB field
+			// hint when available — admins can see exactly which
+			// column the schema rejected.
+			const fieldHint =
+				pbFieldErrors && Object.keys(pbFieldErrors).length > 0
+					? ` (ฟิลด์ที่มีปัญหา: ${Object.keys(pbFieldErrors).join(', ')})`
+					: '';
 			const message =
-				err instanceof Error ? err.message : 'ไม่สามารถส่งงานพิมพ์ได้ กรุณาลองใหม่';
+				err instanceof Error
+					? `ส่งงานพิมพ์ไม่สำเร็จ: ${err.message}${fieldHint}`
+					: 'ไม่สามารถส่งงานพิมพ์ได้ กรุณาลองใหม่';
 
 			return { ok: false, message };
 		} finally {
@@ -220,7 +296,7 @@ export const actions: Actions = {
 		if (!jobId) return { ok: false, message: 'ข้อมูลไม่ถูกต้อง' };
 
 		const pb = createPocketBaseClient();
-		pb.authStore.save({ token: locals.user.token } as never);
+		pb.authStore.save(locals.user.token);
 
 		try {
 			const job = await pb.collection('print_jobs').getOne<PrintJobsRecord>(jobId);

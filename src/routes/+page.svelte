@@ -1,2 +1,4 @@
-<h1>Welcome to SvelteKit</h1>
-<p>Visit <a href="https://svelte.dev/docs/kit">svelte.dev/docs/kit</a> to read the documentation</p>
+<!-- This page is never rendered — `+page.server.ts` always throws
+     a 303 redirect to /login (anonymous) or /admin | /user (logged
+     in). Kept as an empty template so `svelte-check` has something
+     valid to parse. -->

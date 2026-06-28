@@ -16,6 +16,42 @@
 	let copies = $state(1);
 	let dragOver = $state(false);
 
+	// Refs for the upload form — there is no visible submit button,
+	// so the form has to be triggered programmatically when the user
+	// picks a file via the hidden `<input type="file">` or drops one
+	// onto the drop zone. Without this the form silently does
+	// nothing on selection (which is why "อัพไฟล์ไม่ได้" was
+	// reported as a no-op rather than a thrown error).
+	let uploadFormEl: HTMLFormElement | null = null;
+	let uploadFileEl: HTMLInputElement | null = null;
+
+	function submitUpload(): void {
+		if (uploadFormEl && uploadFileEl?.files && uploadFileEl.files.length > 0) {
+			uploadFormEl.requestSubmit();
+		}
+	}
+
+	function onFileChosen(): void {
+		submitUpload();
+	}
+
+	function onDropUpload(e: DragEvent): void {
+		e.preventDefault();
+		dragOver = false;
+		const file = e.dataTransfer?.files?.[0];
+		if (!file || !uploadFileEl) return;
+
+		// Move the dropped file onto the hidden `<input type="file">`
+		// so it gets serialised into the multipart form data, then
+		// trigger the submit. `DataTransfer` is the only spec-blessed
+		// way to assign to `input.files` programmatically.
+		const dt = new DataTransfer();
+		dt.items.add(file);
+		uploadFileEl.files = dt.files;
+
+		submitUpload();
+	}
+
 	type StatusView = {
 		text: string;
 		sub: string;
@@ -132,6 +168,7 @@
 	<!-- ── Upload area ───────────────────────────────────────────────── -->
 	<section class="mb-8">
 		<form
+			bind:this={uploadFormEl}
 			method="POST"
 			action="?/print"
 			enctype="multipart/form-data"
@@ -152,7 +189,7 @@
 					dragOver = true;
 				}}
 				ondragleave={() => (dragOver = false)}
-				ondrop={() => (dragOver = false)}
+				ondrop={onDropUpload}
 			>
 				<Upload class="mb-3 h-7 w-7 text-slate-700" />
 				<p class="text-base font-medium text-slate-900">
@@ -162,11 +199,13 @@
 					รองรับไฟล์เอกสารและรูปภาพทุกประเภท (สูงสุด 25MB)
 				</p>
 				<input
+					bind:this={uploadFileEl}
 					name="file"
 					type="file"
 					required
 					accept=".pdf,.ps,.jpg,.jpeg,.png,.txt,application/pdf,application/postscript,image/jpeg,image/png,text/plain"
 					class="sr-only"
+					onchange={onFileChosen}
 				/>
 				<input type="hidden" name="copies" value={copies} />
 				<input type="hidden" name="sides" value="one-sided" />
