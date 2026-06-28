@@ -1,276 +1,203 @@
 import { error, redirect, type Actions } from '@sveltejs/kit';
-import { env } from '$env/dynamic/private';
-import {
-	createPocketBaseClient,
-	type PrintJobsRecord,
-	type UsersRecord
-} from '$lib/server/pocketbase';
-import {
-	adjustRemaining,
-	listAllQuotas,
-	resetToDefault
-} from '$lib/server/quota';
-import { clearSession } from '$lib/server/session';
 import type { PageServerLoad } from './$types';
+import type { PrintJobsRecord, UsersRecord } from '$lib/server/pocketbase';
+import { adjustRemaining, listAllQuotas, resetToDefault } from '$lib/server/quota';
+import { clearSession } from '$lib/server/session';
 
 /**
- * Build a PocketBase client authenticated as the `_superusers` admin.
- *
- * The `users` collection's update/list rules (see `users.updateRule`
- * in PB) only allow self-edit OR a `_superusers` caller — a regular
- * user tagged with `role="admin"` is NOT a superuser and therefore
- * cannot list, view, or mutate other user records. Same story for
- * `print_jobs` (updateRule/deleteRule are both `""`). So all admin
- * console operations go through this elevated client.
- */
-async function createSuperuserClient() {
-	if (!env.PB_ADMIN_EMAIL || !env.PB_ADMIN_PASSWORD) {
-		throw new Error(
-			'PB_ADMIN_EMAIL / PB_ADMIN_PASSWORD not set in .env — required to bypass collection rules.'
-		);
-	}
-	const pb = createPocketBaseClient();
-	pb.autoCancellation(false);
-	await pb.admins.authWithPassword(env.PB_ADMIN_EMAIL, env.PB_ADMIN_PASSWORD);
-	return pb;
-}
-
-/**
- * Decorate each job with its 1-based position in the live queue (only
- * `processing` + `pending` jobs occupy a slot — completed/failed are
- * dropped). The page UI uses the position for the "ต่อคิว (ลำดับ N)"
- * badge and to derive a rough ETA for the user dashboard.
+ * ปรับลำดับคิวพิมพ์ในระบบ
  */
 function decorateQueuePositions(
-	jobs: PrintJobsRecord[]
+    jobs: PrintJobsRecord[]
 ): Array<PrintJobsRecord & { queuePosition: number | null }> {
-	const active = jobs
-		.filter((j) => j.status === 'processing' || j.status === 'pending')
-		.sort((a, b) => a.created.localeCompare(b.created));
+    const active = jobs
+        .filter((j) => j.status === 'processing' || j.status === 'pending')
+        .sort((a, b) => a.created.localeCompare(b.created));
 
-	const positionById = new Map<string, number>();
-	active.forEach((job, idx) => positionById.set(job.id, idx + 1));
+    const positionById = new Map<string, number>();
+    active.forEach((job, idx) => positionById.set(job.id, idx + 1));
 
-	return jobs.map((j) => ({
-		...j,
-		queuePosition: positionById.get(j.id) ?? null
-	}));
+    return jobs.map((j) => ({
+        ...j,
+        queuePosition: positionById.get(j.id) ?? null
+    }));
 }
 
 export const load: PageServerLoad = async ({ locals }) => {
-	if (!locals.user) throw redirect(303, '/login');
-	if (locals.user.role !== 'admin') throw redirect(303, '/user');
+    // 🛡️ ป้องกันความปลอดภัย: เช็คว่าล็อกอินและเป็นแอดมินของระบบจริงไหม
+    if (!locals.user) throw redirect(303, '/login');
+    if (locals.user.role !== 'admin') throw redirect(303, '/user');
 
-	const pb = await createSuperuserClient();
+    // ⚡ ดึง pb client ประจำ Request ตัวเองมาใช้เลย (สิทธิ์ Admin ตาราง users ทำงานได้ทันทีผ่าน API Rules)
+    const pb = locals.pb;
 
-	const [users, jobsResult, quotasByUser] = await Promise.all([
-		pb.collection('users').getFullList<UsersRecord>({
-			sort: 'name',
-			// Expand `user_type` so the admin table's "แผนก / ฝ่าย"
-			// column can show the department name (and the search box
-			// can match against it) without N+1 fetches.
-			expand: 'user_type'
-		}),
-		pb.collection('print_jobs').getList<PrintJobsRecord>(1, 100, {
-			sort: '-created',
-			expand: 'user'
-		}),
-		listAllQuotas(pb)
-	]);
+    const [users, jobsResult, quotasByUser] = await Promise.all([
+        pb.collection('users').getFullList<UsersRecord>({
+            sort: 'name',
+            expand: 'user_type'
+        }),
+        pb.collection('print_jobs').getList<PrintJobsRecord>(1, 100, {
+            sort: '-created',
+            expand: 'user'
+        }),
+        listAllQuotas(pb)
+    ]);
 
-	// Attach quota snapshot to each user row so the table can render
-	// without N+1 reads. Users without a Quota row yet get the default
-	// snapshot synthesised inside `listAllQuotas`.
-	const usersWithQuota = users.map((u) => {
-		const q = quotasByUser.get(u.id);
-		return {
-			...u,
-			quota: q ?? { userId: u.id, remaining: 0, total: 0, used: 0, tierTotal: 0 }
-		};
-	});
+    const usersWithQuota = users.map((u) => {
+        const q = quotasByUser.get(u.id);
+        return {
+            ...u,
+            quota: q ?? { userId: u.id, remaining: 0, total: 0, used: 0, tierTotal: 0 }
+        };
+    });
 
-	return {
-		users: usersWithQuota,
-		jobs: decorateQueuePositions(jobsResult.items)
-	};
+    return {
+        users: usersWithQuota,
+        jobs: decorateQueuePositions(jobsResult.items)
+    };
 };
 
-/**
- * Admin-only actions — queue control and quota management. All go
- * through the superuser client so PB's collection rules don't reject
- * the writes.
- */
 export const actions: Actions = {
-	adjustQuota: async ({ request, locals }) => {
-		if (!locals.user || locals.user.role !== 'admin') throw error(403, 'Forbidden');
+    adjustQuota: async ({ request, locals }) => {
+        if (!locals.user || locals.user.role !== 'admin') throw error(403, 'Forbidden');
 
-		const data = await request.formData();
-		const userId = String(data.get('userId') ?? '');
-		const delta = Number(data.get('delta') ?? 0);
+        const data = await request.formData();
+        const userId = String(data.get('userId') ?? '');
+        const delta = Number(data.get('delta') ?? 0);
 
-		if (!userId || !Number.isFinite(delta) || delta === 0) {
-			return { ok: false, message: 'ข้อมูลไม่ถูกต้อง' };
-		}
+        if (!userId || !Number.isFinite(delta) || delta === 0) {
+            return { ok: false, message: 'ข้อมูลไม่ถูกต้อง' };
+        }
 
-		const pb = await createSuperuserClient();
+        const pb = locals.pb; // ⚡ เปลี่ยนมาใช้สิทธิ์ผ่านบัญชีแอดมินปัจจุบัน
 
-		try {
-			const snapshot = await adjustRemaining(pb, userId, delta);
-			const user = await pb.collection('users').getOne<UsersRecord>(userId);
-			return {
-				ok: true,
-				message: `เพิ่มโควต้าให้ ${user.name ?? user.email} แล้ว (เหลือ ${snapshot.remaining}/${snapshot.total} หน้า)`
-			};
-		} catch (e) {
-			console.error('[admin/adjustQuota] failed:', e);
-			return { ok: false, message: 'ไม่สามารถอัปเดตโควต้าได้' };
-		}
-	},
+try {
+            const snapshot = await adjustRemaining(pb, userId, delta);
+            
+            // ❌ ลบบรรทัดนี้ออกเพื่อเลี่ยงกฎ View Rule
+            // const user = await pb.collection('users').getOne<UsersRecord>(userId); 
+            
+            return {
+                ok: true,
+                // เปลี่ยนไปแสดงผลด้วยรหัสผู้ใช้ (userId) แทนชื่อ
+                message: `ปรับโควต้าให้พนักงานรหัส ${userId} เรียบร้อยแล้ว (เหลือ ${snapshot.remaining}/${snapshot.total} หน้า)`
+            };
+        } catch (e) {
+            console.error('[admin/adjustQuota] failed:', e);
+            return { ok: false, message: 'ไม่สามารถอัปเดตโควต้าได้' };
+        }
+    },
 
-	resetQuota: async ({ request, locals }) => {
-		if (!locals.user || locals.user.role !== 'admin') throw error(403, 'Forbidden');
+resetQuota: async ({ request, locals }) => {
+        if (!locals.user || locals.user.role !== 'admin') throw error(403, 'Forbidden');
 
-		const data = await request.formData();
-		const userId = String(data.get('userId') ?? '');
-		if (!userId) return { ok: false, message: 'ข้อมูลไม่ถูกต้อง' };
+        const data = await request.formData();
+        const userId = String(data.get('userId') ?? '');
+        
+        // ⚡ รับชื่อมาจากหน้าบ้าน (ถ้าไม่มีให้ fallback เป็นรหัส)
+        const userName = String(data.get('userName') ?? userId); 
+        
+        if (!userId) return { ok: false, message: 'ข้อมูลไม่ถูกต้อง' };
 
-		const pb = await createSuperuserClient();
+        const pb = locals.pb;
 
-		try {
-			const snapshot = await resetToDefault(pb, userId);
-			const user = await pb.collection('users').getOne<UsersRecord>(userId);
-			return {
-				ok: true,
-				message: `รีเซ็ตโควต้าให้ ${user.name ?? user.email} เป็น ${snapshot.total} หน้าแล้ว`
-			};
-		} catch (e) {
-			console.error('[admin/resetQuota] failed:', e);
-			return { ok: false, message: 'ไม่สามารถรีเซ็ตโควต้าได้' };
-		}
-	},
+        try {
+            const snapshot = await resetToDefault(pb, userId);
+            
+            return {
+                ok: true,
+                // ⚡ เอา userName มาใส่ตรงนี้ได้เลย!
+                message: `รีเซ็ตโควต้าให้ ${userName} เป็น ${snapshot.total} หน้าเรียบร้อยแล้ว`
+            };
+        } catch (e) {
+            console.error('[admin/resetQuota] failed:', e);
+            return { ok: false, message: 'ไม่สามารถรีเซ็ตโควต้าได้' };
+        }
+    },
 
-	/**
-	 * Bulk "+N" — bump `Total_Quota` on every selected user's own
-	 * Quota row by the same `delta`. Runs in parallel (per-user
-	 * writes are independent — each `adjustRemaining` is per-user).
-	 */
-	bulkAdjustQuota: async ({ request, locals }) => {
-		if (!locals.user || locals.user.role !== 'admin') throw error(403, 'Forbidden');
+    bulkAdjustQuota: async ({ request, locals }) => {
+        if (!locals.user || locals.user.role !== 'admin') throw error(403, 'Forbidden');
 
-		const data = await request.formData();
-		const userIds = data
-			.getAll('userIds')
-			.map((v) => String(v))
-			.filter(Boolean);
-		const delta = Number(data.get('delta') ?? 0);
+        const data = await request.formData();
+        const userIds = data.getAll('userIds').map((v) => String(v)).filter(Boolean);
+        const delta = Number(data.get('delta') ?? 0);
 
-		if (userIds.length === 0) {
-			return { ok: false, message: 'ยังไม่ได้เลือกผู้ใช้' };
-		}
-		if (!Number.isFinite(delta) || delta === 0) {
-			return { ok: false, message: 'จำนวนหน้าที่จะเพิ่มไม่ถูกต้อง' };
-		}
+        if (userIds.length === 0) return { ok: false, message: 'ยังไม่ได้เลือกผู้ใช้' };
+        if (!Number.isFinite(delta) || delta === 0) return { ok: false, message: 'จำนวนหน้าไม่ถูกต้อง' };
 
-		const pb = await createSuperuserClient();
+        const pb = locals.pb;
 
-		const settled = await Promise.allSettled(
-			userIds.map((userId) => adjustRemaining(pb, userId, delta))
-		);
+        const settled = await Promise.allSettled(
+            userIds.map((userId) => adjustRemaining(pb, userId, delta))
+        );
 
-		const ok = settled.filter((r) => r.status === 'fulfilled').length;
-		const failed = settled.length - ok;
+        const ok = settled.filter((r) => r.status === 'fulfilled').length;
+        const failed = settled.length - ok;
 
-		if (failed === 0) {
-			return {
-				ok: true,
-				message: `เพิ่มโควต้า ${delta >= 0 ? '+' : ''}${delta} หน้า ให้ ${ok} คนเรียบร้อย`
-			};
-		}
-		console.error('[admin/bulkAdjustQuota] partial failure:', settled);
-		return {
-			ok: false,
-			message: `ปรับสำเร็จ ${ok} คน, ล้มเหลว ${failed} คน (ดู console)`
-		};
-	},
+        return failed === 0 
+            ? { ok: true, message: `เพิ่มโควต้า ${delta >= 0 ? '+' : ''}${delta} หน้า ให้ ${ok} คนเรียบร้อย` }
+            : { ok: false, message: `ปรับสำเร็จ ${ok} คน, ล้มเหลว ${failed} คน` };
+    },
 
-	/**
-	 * Bulk "รีเซ็ต" — re-sync every selected user's per-user ceiling
-	 * back to their tier value (from the `Quota` relation) and zero
-	 * `Use`. Runs in parallel.
-	 */
-	bulkResetQuota: async ({ request, locals }) => {
-		if (!locals.user || locals.user.role !== 'admin') throw error(403, 'Forbidden');
+    bulkResetQuota: async ({ request, locals }) => {
+        if (!locals.user || locals.user.role !== 'admin') throw error(403, 'Forbidden');
 
-		const data = await request.formData();
-		const userIds = data
-			.getAll('userIds')
-			.map((v) => String(v))
-			.filter(Boolean);
+        const data = await request.formData();
+        const userIds = data.getAll('userIds').map((v) => String(v)).filter(Boolean);
 
-		if (userIds.length === 0) {
-			return { ok: false, message: 'ยังไม่ได้เลือกผู้ใช้' };
-		}
+        if (userIds.length === 0) return { ok: false, message: 'ยังไม่ได้เลือกผู้ใช้' };
 
-		const pb = await createSuperuserClient();
+        const pb = locals.pb;
 
-		const settled = await Promise.allSettled(
-			userIds.map((userId) => resetToDefault(pb, userId))
-		);
+        const settled = await Promise.allSettled(
+            userIds.map((userId) => resetToDefault(pb, userId))
+        );
 
-		const ok = settled.filter((r) => r.status === 'fulfilled').length;
-		const failed = settled.length - ok;
+        const ok = settled.filter((r) => r.status === 'fulfilled').length;
+        const failed = settled.length - ok;
 
-		if (failed === 0) {
-			return { ok: true, message: `รีเซ็ตโควต้าให้ ${ok} คนเรียบร้อย` };
-		}
-		console.error('[admin/bulkResetQuota] partial failure:', settled);
-		return {
-			ok: false,
-			message: `รีเซ็ตสำเร็จ ${ok} คน, ล้มเหลว ${failed} คน (ดู console)`
-		};
-	},
+        return failed === 0
+            ? { ok: true, message: `รีเซ็ตโควต้าให้ ${ok} คนเรียบร้อย` }
+            : { ok: false, message: `รีเซ็ตสำเร็จ ${ok} คน, ล้มเหลว ${failed} คน` };
+    },
 
-	suspend: async ({ request, locals }) => {
-		if (!locals.user || locals.user.role !== 'admin') throw error(403, 'Forbidden');
+    suspend: async ({ request, locals }) => {
+        if (!locals.user || locals.user.role !== 'admin') throw error(403, 'Forbidden');
 
-		const data = await request.formData();
-		const jobId = String(data.get('jobId') ?? '');
-		if (!jobId) return { ok: false, message: 'ข้อมูลไม่ถูกต้อง' };
+        const data = await request.formData();
+        const jobId = String(data.get('jobId') ?? '');
+        if (!jobId) return { ok: false, message: 'ข้อมูลไม่ถูกต้อง' };
 
-		const pb = await createSuperuserClient();
+        try {
+            await locals.pb.collection('print_jobs').update(jobId, {
+                status: 'failed',
+                error_message: 'Suspended by admin'
+            });
+            return { ok: true, message: 'ระงับงานเรียบร้อย' };
+        } catch (e) {
+            console.error('[admin/suspend] failed:', e);
+            return { ok: false, message: 'ไม่สามารถระงับงานได้' };
+        }
+    },
 
-		try {
-			await pb.collection('print_jobs').update(jobId, {
-				status: 'failed',
-				error_message: 'Suspended by admin'
-			});
-			return { ok: true, message: 'ระงับงานเรียบร้อย' };
-		} catch (e) {
-			console.error('[admin/suspend] failed:', e);
-			return { ok: false, message: 'ไม่สามารถระงับงานได้' };
-		}
-	},
+    remove: async ({ request, locals }) => {
+        if (!locals.user || locals.user.role !== 'admin') throw error(403, 'Forbidden');
 
-	remove: async ({ request, locals }) => {
-		if (!locals.user || locals.user.role !== 'admin') throw error(403, 'Forbidden');
+        const data = await request.formData();
+        const jobId = String(data.get('jobId') ?? '');
+        if (!jobId) return { ok: false, message: 'ข้อมูลไม่ถูกต้อง' };
 
-		const data = await request.formData();
-		const jobId = String(data.get('jobId') ?? '');
-		if (!jobId) return { ok: false, message: 'ข้อมูลไม่ถูกต้อง' };
+        try {
+            await locals.pb.collection('print_jobs').delete(jobId);
+            return { ok: true, message: 'ลบงานออกจากคิวเรียบร้อย' };
+        } catch (e) {
+            console.error('[admin/remove] failed:', e);
+            return { ok: false, message: 'ไม่สามารถลบงานได้' };
+        }
+    },
 
-		const pb = await createSuperuserClient();
-
-		try {
-			await pb.collection('print_jobs').delete(jobId);
-			return { ok: true, message: 'ลบงานออกจากคิวเรียบร้อย' };
-		} catch (e) {
-			console.error('[admin/remove] failed:', e);
-			return { ok: false, message: 'ไม่สามารถลบงานได้' };
-		}
-	},
-
-	logout: async ({ cookies }) => {
-		clearSession(cookies);
-		throw redirect(303, '/login');
-	}
+    logout: async ({ cookies }) => {
+        clearSession(cookies);
+        throw redirect(303, '/login');
+    }
 };

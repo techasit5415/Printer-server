@@ -332,7 +332,7 @@
 							<td class="px-6 py-4 text-secondary-app">
 								{u.expand?.user_type?.type ?? '—'}
 							</td>
-							<td class="px-6 py-4 text-secondary-app">{quota.tierTotal} หน้า / เดือน</td>
+							<td class="px-6 py-4 text-secondary-app">{quota.tierTotal} หน้า / เทอม</td>
 							<td class="px-6 py-4">
 								<div class="text-sm font-medium text-fg-app">
 									<span class={quota.remaining <= 0 ? 'text-danger' : ''}>

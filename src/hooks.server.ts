@@ -12,66 +12,105 @@ import { createPb } from '$lib/pb';
 import type { UserRole } from '$lib/types';
 
 interface UserTypeRef {
-	type?: string;
+    type?: string;
 }
 
 interface UserRecord {
-	id: string;
-	email: string;
-	name?: string;
-	username?: string;
-	user_type?: string | null;
-	expand?: { user_type?: UserTypeRef };
+    id: string;
+    email: string;
+    name?: string;
+    username?: string;
+    user_type?: string | null;
+    expand?: { 
+        user_type?: UserTypeRef;
+        Quota_via_relation?: Array<{
+            id: string;
+            relation: string;
+            Total_Quota: number;
+            Quota: string;
+            Use: number;
+        }>;
+    };
 }
 
 function resolveRole(record: UserRecord): UserRole {
-	// PB returns expanded relations under `expand.<field>`, NOT inline on
-	// the field itself. `user_type` stays as the relation ID, the actual
-	// record lives at `record.expand.user_type`.
-	const expanded = record.expand?.user_type;
-	const typeName = expanded?.type ?? null;
-	if (typeName && typeName.toLowerCase() === 'admin') return 'admin';
-	return 'user';
+    // PB returns expanded relations under `expand.<field>`, NOT inline on
+    // the field itself. `user_type` stays as the relation ID, the actual
+    // record lives at `record.expand.user_type`.
+    const expanded = record.expand?.user_type;
+    const typeName = expanded?.type ?? null;
+    if (typeName && typeName.toLowerCase() === 'admin') return 'admin';
+    return 'user';
 }
 
 function resolveEmail(record: UserRecord): string {
-	if (record.email) return record.email;
-	if (record.username) return `${record.username}@cskmitl.internal`;
-	return 'unknown@cskmitl.internal';
+    if (record.email) return record.email;
+    if (record.username) return `${record.username}@cskmitl.internal`;
+    return 'unknown@cskmitl.internal';
 }
 
 export const handle: Handle = async ({ event, resolve }) => {
-	event.locals.pb = createPb(event);
+    event.locals.pb = createPb(event);
 
-	const pb = event.locals.pb;
-	if (pb.authStore.isValid) {
-		try {
-			// authRefresh lives in `users` (the regular auth collection).
-			// Follow up with a getOne that expands `user_type` so the role
-			// check can read its `type` field.
-			await pb.collection('users').authRefresh();
-			const userId = pb.authStore.record?.id;
-			if (!userId) throw new Error('no user id in auth store');
-			const full = (await pb.collection('users').getOne(userId, {
-				expand: 'user_type'
-			})) as unknown as UserRecord;
-			event.locals.user = {
-				id: full.id,
-				email: resolveEmail(full),
-				name: full.name ?? full.username,
-				username: full.username,
-				role: resolveRole(full),
-				// Persist the freshly-refreshed token so route actions can
-				// rebuild a private PB client without re-validating the cookie.
-				token: pb.authStore.token
-			};
-		} catch {
-			pb.authStore.clear();
-			event.locals.user = null;
-		}
-	} else {
-		event.locals.user = null;
-	}
+    const pb = event.locals.pb;
+    if (pb.authStore.isValid) {
+        try {
+            await pb.collection('users').authRefresh();
+            const userId = pb.authStore.record?.id;
+            if (!userId) throw new Error('no user id in auth store');
+            
+            // 1. ดึงข้อมูลพนักงาน + ดึงข้อมูลจากคอลเลกชัน Quota (ตารางลูก) ที่ผูกผ่านฟิลด์ relation
+            // โดยตั้งชื่อการขยายความสัมพันธ์ย้อนกลับ (Back-relation) ตามตาราง Quota 
+            let full = (await pb.collection('users').getOne(userId, {
+                expand: 'user_type,Quota_via_relation' 
+            })) as unknown as UserRecord;
 
-	return resolve(event);
+            // ดึงข้อมูลผ่านตัวแปรที่เป็นพิมพ์ใหญ่ Quota_via_relation ให้ตรงกับ Schema
+            let quotaRecord = full.expand?.Quota_via_relation?.[0] ?? null;
+
+            // 🌟 2. ถ้าเข้าสู่ระบบครั้งแรกแล้วยังไม่มีประวัติในคอลเลกชัน Quota ให้สร้างอัตโนมัติ
+            if (!quotaRecord) {
+                try {
+                    // ก. ค้นหาแถวโควต้าตั้งต้นจากคอลเลกชัน "Total_Quota" (ตารางแม่) 
+                    // ในที่นี้เลือกแถวแรกที่มีอยู่ในระบบขึ้นมาเป็นค่า Default (เช่น Tier 100 หน้า หรือ 500 หน้า)
+                    const defaultMaster = await pb.collection('Total_Quota').getFirstListItem('');
+                    
+                    // ข. ทำการสร้าง Record ใหม่ในคอลเลกชัน "Quota" (ตารางลูก)
+                    quotaRecord = await pb.collection('Quota').create({
+                        relation: userId,                   // ชี้กลับมาที่ ID พนักงาน
+                        Quota: defaultMaster.id,            // ผูกความสัมพันธ์เข้ากับตารางแม่ผ่าน ID ของ Total_Quota
+                        Total_Quota: defaultMaster.Total_Quota, // ดึงค่าตัวเลขจากฟิลด์ Total_Quota ของตารางแม่มาสืบทอด
+                        Use: 0                              // ยอดพิมพ์เริ่มต้นที่ 0 หน้า
+                    });
+
+                    console.log(`[Hooks] Auto-created initial Quota record for user: ${userId} linking to Master Quota Tier: ${defaultMaster.id}`);
+                } catch (createErr) {
+                    console.error('Failed to auto-create quota entry on login:', createErr);
+                }
+            }
+
+            // 3. แนบสถานะโควต้าที่ใช้งานได้จริงเข้าไปใน session ของผู้ใช้
+            event.locals.user = {
+                id: full.id,
+                email: resolveEmail(full),
+                name: full.name ?? full.username,
+                username: full.username,
+                role: resolveRole(full),
+                token: pb.authStore.token,
+                
+                quota: {
+                    id: quotaRecord?.id ?? null,
+                    total: quotaRecord?.Total_Quota ?? 0, // สิทธิ์จำนวนหน้า (เช่น 500)
+                    used: quotaRecord?.Use ?? 0           // จำนวนหน้าใช้ไปล่าสุด (เช่น 0)
+                }
+            };
+        } catch {
+            pb.authStore.clear();
+            event.locals.user = null;
+        }
+    } else {
+        event.locals.user = null;
+    }
+
+    return resolve(event);
 };
