@@ -7,7 +7,7 @@
 	let { children }: { children: Snippet } = $props();
 </script>
 
-<svelte:head><title>PrintOS</title></svelte:head>
+<svelte:head><title>Print Server</title></svelte:head>
 
 <!-- Navbar renders its own brand mark, theme switcher, sign-in/out
      and conditional nav links (admin console / user dashboard). -->

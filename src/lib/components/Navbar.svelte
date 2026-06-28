@@ -38,10 +38,9 @@
 	<div class="mx-auto flex h-14 max-w-[1400px] items-center justify-between gap-4 px-4 sm:gap-6 sm:px-6">
 		<a href="/" class="flex items-center gap-2 font-mono text-sm tracking-tight text-fg-app">
 			<Printer class="h-4 w-4 text-accent" />
-			<span class="font-semibold">PrintOS</span>
+			<span class="font-semibold">print server</span>
 			<!-- Brand suffix only shows from md up — keeps the row from
 			     getting crowded on phones where every pixel counts. -->
-			<span class="hidden text-muted-app md:inline">/ print server console</span>
 		</a>
 
 		<!-- Desktop nav — hidden below lg where the hamburger takes over. -->

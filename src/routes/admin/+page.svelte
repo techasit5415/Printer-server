@@ -122,11 +122,9 @@
 <div class="mx-auto max-w-6xl px-6 py-8">
 	<header class="mb-8">
 		<h1 class="text-2xl font-semibold tracking-tight text-fg-app">
-			แผงควบคุมหลักผู้ดูแลระบบ
+			Control Panel
 		</h1>
-		<p class="mt-2 text-sm text-secondary-app">
-			จัดการเครื่องพิมพ์ขนาดทั้งองค์กร และควบคุมโควต้าสำหรับการพิมพ์ของพนักงาน
-		</p>
+
 	</header>
 
 	{#if form?.message}
@@ -140,7 +138,7 @@
 		<div class="flex items-center gap-2 border-b border-app px-6 py-4">
 			<Printer class="h-4 w-4 text-accent" />
 			<h2 class="text-base font-semibold text-fg-app">
-				คิวเครื่องพิมพ์ทั้งหมดในระบบ (System Print Queue)
+				คิวเครื่องพิมพ์
 			</h2>
 		</div>
 		<div class="overflow-x-auto">
@@ -258,9 +256,9 @@
 								min="1"
 								step="1"
 								required
-								placeholder="จำนวน"
+								placeholder=" จำนวน"
 								title="จำนวนหน้าที่จะเพิ่ม (ใส่ค่าลบได้)"
-								class="w-20 rounded-md border border-app bg-surface py-1 pl-6 pr-2 text-xs font-mono text-fg-app placeholder:text-muted-app focus:border-accent focus:outline-none focus:ring-2 focus:ring-accent/40"
+								class="w-22 rounded-md border border-app bg-surface py-2  pl-6 pr-2 text-xs font-mono text-fg-app placeholder:text-muted-app focus:border-accent focus:outline-none focus:ring-2 focus:ring-accent/40"
 							/>
 						</div>
 						<Button variant="primary" size="sm" type="submit" disabled={selectedIds.size === 0}>
@@ -363,9 +361,9 @@
 												min="1"
 												step="1"
 												required
-												placeholder="จำนวน"
+												placeholder=" จำนวน"
 												title="จำนวนหน้าที่ต้องการเพิ่ม (ใส่ค่าลบได้ถ้าต้องการลด)"
-												class="w-20 rounded-md border border-app bg-surface py-1 pl-6 pr-2 text-xs font-mono text-fg-app placeholder:text-muted-app focus:border-accent focus:outline-none focus:ring-2 focus:ring-accent/40"
+												class="w-22 rounded-md border border-app bg-surface py-2 pl-6 pr-2 text-xs font-mono text-fg-app placeholder:text-muted-app focus:border-accent focus:outline-none focus:ring-2 focus:ring-accent/40"
 											/>
 										</div>
 										<Button variant="primary" size="sm" type="submit">

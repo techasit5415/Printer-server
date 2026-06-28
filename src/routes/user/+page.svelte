@@ -356,7 +356,7 @@
 
 					<!-- Colour mode (colour / mono) -->
 					<div class="mt-5">
-						<p class="text-sm text-fg-app">สี</p>
+						<p class="text-sm text-fg-app">สี แต่ก็ปริ้นได้แค่ขาวดำเหมือนเดิมนั้นแหละมีให้ดีใจเล่น</p>
 						<div class="mt-2 grid grid-cols-2 gap-2">
 							<button
 								type="button"
@@ -374,7 +374,7 @@
 									<div class="h-3 w-2 rounded-sm bg-accent"></div>
 									<div class="h-3 w-2 rounded-sm bg-success"></div>
 								</div>
-								<span class="text-xs">สี</span>
+								<span class="text-xs">สี แต่ก็ปริ้นได้แค่ขาวดำเหมือนเดิมนั้นแหละมีให้ดีใจเล่น</span>
 							</button>
 							<button
 								type="button"
@@ -463,7 +463,7 @@
 				<div class="px-6 py-12 text-center">
 					<Upload class="mx-auto mb-3 h-8 w-8 text-muted-app" />
 					<p class="text-sm text-muted-app">
-						ยังไม่มีงานพิมพ์ — ลากไฟล์มาวางที่กล่องด้านบนเพื่อเริ่มงานแรกของคุณ
+						ยังไม่มีงานพิมพ์ 
 					</p>
 				</div>
 			{:else}
