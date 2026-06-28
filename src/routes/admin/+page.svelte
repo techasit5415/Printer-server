@@ -5,12 +5,13 @@
 		Search,
 		Plus,
 		RefreshCw,
-		Zap,
-		Hourglass,
-		CheckCircle2,
-		AlertTriangle,
-		Users
+		Users,
+		X
 	} from '@lucide/svelte';
+	import AlertBanner from '$lib/components/AlertBanner.svelte';
+	import Button from '$lib/components/Button.svelte';
+	import QuotaBar from '$lib/components/QuotaBar.svelte';
+	import StatusBadge from '$lib/components/StatusBadge.svelte';
 	import type { PageData, ActionData } from './$types';
 
 	let { data, form }: { data: PageData; form: ActionData } = $props();
@@ -81,67 +82,29 @@
 		});
 	});
 
-	function quotaPercent(used: number, total: number): number {
-		if (total <= 0) return 0;
-		return Math.max(0, Math.min(100, Math.round((used / total) * 100)));
-	}
-
-	/**
-	 * Colour the progress bar based on how much of the ceiling is
-	 * still available (not consumed). `remaining` is the quota left
-	 * out of `total` — when that drops below 30% we go amber, below
-	 * 10% we go red.
-	 */
-	function quotaBarColor(remaining: number, total: number): string {
-		const pct = quotaPercent(remaining, total);
-		if (pct <= 10) return 'bg-red-500';
-		if (pct <= 30) return 'bg-amber-500';
-		return 'bg-blue-500';
-	}
-
 	function jobRef(id: string): string {
 		// Suffix of PB id uppercased — stable per row, ~4 chars.
 		return `JOB-${id.slice(-4).toUpperCase()}`;
 	}
 
-	type StatusView = {
-		text: string;
-		cls: string;
-		icon: typeof Zap;
-	};
-
-	function statusView(job: { status: string; queuePosition: number | null }): StatusView {
+	/**
+	 * Display label for a job status. The mapping lives here (not in
+	 * StatusBadge) because the UI also surfaces `queuePosition` for
+	 * the "pending" state — "ต่อคิว (ลำดับ N)" — and StatusBadge is a
+	 * pure chip with no per-state sub-text support.
+	 */
+	function jobStatusLabel(job: { status: string; queuePosition: number | null }): string {
 		switch (job.status) {
 			case 'processing':
-				return {
-					text: 'กำลังพิมพ์...',
-					cls: 'bg-amber-50 text-amber-700 border-amber-200',
-					icon: Zap
-				};
+				return 'กำลังพิมพ์...';
 			case 'pending':
-				return {
-					text: `ต่อคิว (ลำดับ ${job.queuePosition ?? '?'})`,
-					cls: 'bg-amber-50 text-amber-700 border-amber-200',
-					icon: Hourglass
-				};
+				return `ต่อคิว (ลำดับ ${job.queuePosition ?? '?'})`;
 			case 'completed':
-				return {
-					text: 'เสร็จสิ้น',
-					cls: 'bg-emerald-50 text-emerald-700 border-emerald-200',
-					icon: CheckCircle2
-				};
+				return 'เสร็จสิ้น';
 			case 'failed':
-				return {
-					text: 'ล้มเหลว',
-					cls: 'bg-red-50 text-red-700 border-red-200',
-					icon: AlertTriangle
-				};
+				return 'ล้มเหลว';
 			default:
-				return {
-					text: job.status,
-					cls: 'bg-slate-50 text-slate-700 border-slate-200',
-					icon: Hourglass
-				};
+				return job.status;
 		}
 	}
 
@@ -158,36 +121,32 @@
 
 <div class="mx-auto max-w-6xl px-6 py-8">
 	<header class="mb-8">
-		<h1 class="text-2xl font-semibold text-slate-900">
-			แผงควบคุมหลักผู้ดูแลระบบ (Admin Console)
+		<h1 class="text-2xl font-semibold tracking-tight text-fg-app">
+			แผงควบคุมหลักผู้ดูแลระบบ
 		</h1>
-		<p class="mt-2 text-sm text-slate-500">
+		<p class="mt-2 text-sm text-secondary-app">
 			จัดการเครื่องพิมพ์ขนาดทั้งองค์กร และควบคุมโควต้าสำหรับการพิมพ์ของพนักงาน
 		</p>
 	</header>
 
 	{#if form?.message}
-		<p
-			class="mb-4 rounded-lg border px-3 py-2 text-sm {form.ok
-				? 'border-emerald-200 bg-emerald-50 text-emerald-700'
-				: 'border-red-200 bg-red-50 text-red-700'}"
-		>
-			{form.message}
-		</p>
+		<div class="mb-4">
+			<AlertBanner variant={form.ok ? 'success' : 'error'} message={form.message} />
+		</div>
 	{/if}
 
 	<!-- ── System Print Queue ─────────────────────────────────────────── -->
-	<section class="mb-8 rounded-xl border border-slate-200 bg-white shadow-sm">
-		<div class="flex items-center gap-2 border-b border-slate-200 px-6 py-4">
-			<Printer class="h-4 w-4 text-blue-600" />
-			<h2 class="text-base font-semibold text-slate-900">
+	<section class="mb-8 rounded-xl border border-app bg-surface shadow-sm transition-colors">
+		<div class="flex items-center gap-2 border-b border-app px-6 py-4">
+			<Printer class="h-4 w-4 text-accent" />
+			<h2 class="text-base font-semibold text-fg-app">
 				คิวเครื่องพิมพ์ทั้งหมดในระบบ (System Print Queue)
 			</h2>
 		</div>
 		<div class="overflow-x-auto">
 			<table class="w-full text-sm">
 				<thead
-					class="border-b border-slate-200 text-xs uppercase tracking-wide text-slate-500"
+					class="border-b border-app text-xs tracking-wide text-muted-app"
 				>
 					<tr>
 						<th class="px-6 py-3 text-left font-medium">รหัสงาน</th>
@@ -198,51 +157,38 @@
 						<th class="px-6 py-3 text-left font-medium">การจัดการคิว</th>
 					</tr>
 				</thead>
-				<tbody class="divide-y divide-slate-200">
+				<tbody class="divide-y divide-app">
 					{#each data.jobs as job (job.id)}
-						{@const status = statusView(job)}
-						<tr class="hover:bg-slate-50/60">
-							<td class="px-6 py-4 font-mono text-xs text-blue-600">#{jobRef(job.id)}</td>
-							<td class="px-6 py-4 font-medium text-slate-900">{job.filename}</td>
-							<td class="px-6 py-4 text-slate-700">{requesterLabel(job)}</td>
-							<td class="px-6 py-4 text-slate-700">{job.printer_name}</td>
+						<tr class="hover:bg-elevated transition-colors">
+							<td class="px-6 py-4 font-mono text-xs text-accent">#{jobRef(job.id)}</td>
+							<td class="px-6 py-4 font-medium text-fg-app">{job.filename}</td>
+							<td class="px-6 py-4 text-secondary-app">{requesterLabel(job)}</td>
+							<td class="px-6 py-4 text-secondary-app">{job.printer_name}</td>
 							<td class="px-6 py-4">
-								<span
-									class="inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-xs font-medium {status.cls}"
-								>
-									<status.icon class="h-3 w-3" />
-									{status.text}
-								</span>
+								<StatusBadge status={job.status} />
+								{#if job.status === 'pending' || job.status === 'processing'}
+									<p class="mt-1 text-xs text-muted-app">{jobStatusLabel(job)}</p>
+								{/if}
 							</td>
 							<td class="px-6 py-4">
 								{#if job.status === 'processing'}
 									<form method="POST" action="?/suspend" use:enhance>
 										<input type="hidden" name="jobId" value={job.id} />
-										<button
-											type="submit"
-											class="inline-flex items-center gap-1 rounded-md border border-red-200 bg-red-50 px-2.5 py-1 text-xs font-medium text-red-700 hover:bg-red-100"
-										>
-											ระงับงาน
-										</button>
+										<Button variant="danger" size="sm" type="submit">ระงับงาน</Button>
 									</form>
 								{:else if job.status === 'pending'}
 									<form method="POST" action="?/remove" use:enhance>
 										<input type="hidden" name="jobId" value={job.id} />
-										<button
-											type="submit"
-											class="inline-flex items-center gap-1 rounded-md border border-red-200 bg-red-50 px-2.5 py-1 text-xs font-medium text-red-700 hover:bg-red-100"
-										>
-											ลบคิว
-										</button>
+										<Button variant="danger" size="sm" type="submit">ลบคิว</Button>
 									</form>
 								{:else}
-									<span class="text-xs text-slate-400">-</span>
+									<span class="text-xs text-muted-app">-</span>
 								{/if}
 							</td>
 						</tr>
 					{:else}
 						<tr>
-							<td colspan="6" class="px-6 py-8 text-center text-sm text-slate-500">
+							<td colspan="6" class="px-6 py-8 text-center text-sm text-muted-app">
 								ไม่มีงานพิมพ์ในคิว
 							</td>
 						</tr>
@@ -253,24 +199,24 @@
 	</section>
 
 	<!-- ── User Quotas ───────────────────────────────────────────────── -->
-	<section class="rounded-xl border border-slate-200 bg-white shadow-sm">
-		<div class="flex items-center gap-2 border-b border-slate-200 px-6 py-4">
-			<Users class="h-4 w-4 text-blue-600" />
-			<h2 class="text-base font-semibold text-slate-900">
+	<section class="rounded-xl border border-app bg-surface shadow-sm transition-colors">
+		<div class="flex items-center gap-2 border-b border-app px-6 py-4">
+			<Users class="h-4 w-4 text-accent" />
+			<h2 class="text-base font-semibold text-fg-app">
 				การจัดการสิทธิ์และโควต้าพิมพ์กงาน (User Quotas)
 			</h2>
 		</div>
 
-		<div class="border-b border-slate-200 px-6 py-3">
+		<div class="border-b border-app px-6 py-3">
 			<div class="relative">
 				<Search
-					class="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-blue-500"
+					class="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-app"
 				/>
 				<input
 					type="search"
 					bind:value={query}
 					placeholder="ค้นหาด้วยชื่อพนักงาน, ID หรือแผนก..."
-					class="w-full rounded-md border border-slate-200 bg-slate-50 py-2 pl-10 pr-3 text-sm text-slate-700 placeholder:text-slate-400 focus:border-blue-500 focus:bg-white focus:outline-none focus:ring-1 focus:ring-blue-500"
+					class="w-full rounded-md border border-app bg-elevated py-2 pl-10 pr-3 text-sm text-fg-app placeholder:text-muted-app transition-colors focus:border-accent focus:bg-surface focus:outline-none focus:ring-2 focus:ring-accent/40"
 				/>
 			</div>
 		</div>
@@ -280,9 +226,9 @@
 		     the summary text on the left tells the admin what's queued. -->
 		{#if filteredUsers.length > 0}
 			<div
-				class="flex flex-wrap items-center gap-3 border-b border-slate-200 bg-slate-50 px-6 py-3"
+				class="flex flex-wrap items-center gap-3 border-b border-app bg-elevated/50 px-6 py-3"
 			>
-				<span class="text-sm text-slate-600">
+				<span class="text-sm text-secondary-app">
 					{#if selectedIds.size === 0}
 						ยังไม่ได้เลือกผู้ใช้ — ติ๊ก checkbox เพื่อทำ bulk action
 					{:else if selectedIds.size === filteredUsers.length}
@@ -304,7 +250,7 @@
 						{/each}
 						<div class="relative">
 							<Plus
-								class="pointer-events-none absolute left-1.5 top-1/2 h-3 w-3 -translate-y-1/2 text-blue-500"
+								class="pointer-events-none absolute left-1.5 top-1/2 h-3 w-3 -translate-y-1/2 text-muted-app"
 							/>
 							<input
 								type="number"
@@ -314,40 +260,28 @@
 								required
 								placeholder="จำนวน"
 								title="จำนวนหน้าที่จะเพิ่ม (ใส่ค่าลบได้)"
-								class="w-20 rounded-md border border-blue-200 bg-white py-1 pl-6 pr-2 text-xs font-mono text-slate-700 focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
+								class="w-20 rounded-md border border-app bg-surface py-1 pl-6 pr-2 text-xs font-mono text-fg-app placeholder:text-muted-app focus:border-accent focus:outline-none focus:ring-2 focus:ring-accent/40"
 							/>
 						</div>
-						<button
-							type="submit"
-							disabled={selectedIds.size === 0}
-							class="inline-flex items-center rounded-md border border-blue-200 bg-blue-50 px-2.5 py-1 text-xs font-medium text-blue-700 hover:bg-blue-100 disabled:cursor-not-allowed disabled:opacity-50"
-						>
+						<Button variant="primary" size="sm" type="submit" disabled={selectedIds.size === 0}>
 							เพิ่ม (ที่เลือก)
-						</button>
+						</Button>
 					</form>
 
 					<form method="POST" action="?/bulkResetQuota" use:enhance={clearOnSuccess}>
 						{#each [...selectedIds] as id (id)}
 							<input type="hidden" name="userIds" value={id} />
 						{/each}
-						<button
-							type="submit"
-							disabled={selectedIds.size === 0}
-							class="inline-flex items-center gap-1 rounded-md border border-slate-300 bg-white px-2.5 py-1 text-xs font-medium text-slate-700 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50"
-						>
+						<Button variant="secondary" size="sm" type="submit" disabled={selectedIds.size === 0}>
 							<RefreshCw class="h-3 w-3" />
 							รีเซ็ต (ที่เลือก)
-						</button>
+						</Button>
 					</form>
 
-					<button
-						type="button"
-						onclick={clearSelection}
-						disabled={selectedIds.size === 0}
-						class="inline-flex items-center rounded-md px-2.5 py-1 text-xs font-medium text-slate-500 hover:text-slate-700 disabled:cursor-not-allowed disabled:opacity-50"
-					>
+					<Button variant="ghost" size="sm" onclick={clearSelection} disabled={selectedIds.size === 0}>
+						<X class="h-3 w-3" />
 						ล้างการเลือก
-					</button>
+					</Button>
 				</div>
 			</div>
 		{/if}
@@ -355,7 +289,7 @@
 		<div class="overflow-x-auto">
 			<table class="w-full text-sm">
 				<thead
-					class="border-b border-slate-200 text-xs uppercase tracking-wide text-slate-500"
+					class="border-b border-app text-xs tracking-wide text-muted-app"
 				>
 					<tr>
 						<th class="w-10 px-6 py-3 text-left font-medium">
@@ -366,7 +300,7 @@
 									selectedIds.size === filteredUsers.length}
 								onchange={(e) => toggleAll(e.currentTarget.checked)}
 								aria-label="เลือกผู้ใช้ทั้งหมด"
-								class="h-4 w-4 rounded border-slate-300 text-blue-600 focus:ring-blue-500"
+								class="h-4 w-4 rounded border-strong-app text-accent focus:ring-accent/40"
 							/>
 						</th>
 						<th class="px-6 py-3 text-left font-medium">พนักงาน (User)</th>
@@ -376,47 +310,38 @@
 						<th class="px-6 py-3 text-left font-medium">เครื่องมือจัดการโควต้า</th>
 					</tr>
 				</thead>
-				<tbody class="divide-y divide-slate-200">
+				<tbody class="divide-y divide-app">
 					{#each filteredUsers as u (u.id)}
 						{@const quota = u.quota}
-						{@const usedPct = quota.total <= 0
-							? 0
-							: Math.max(0, Math.min(100, Math.round((quota.used / quota.total) * 100)))}
-						<tr class="hover:bg-slate-50/60">
+						<tr class="hover:bg-elevated transition-colors">
 							<td class="px-6 py-4">
 								<input
 									type="checkbox"
 									checked={selectedIds.has(u.id)}
 									onchange={(e) => toggleOne(u.id, e.currentTarget.checked)}
 									aria-label={`เลือก ${u.name ?? u.email}`}
-									class="h-4 w-4 rounded border-slate-300 text-blue-600 focus:ring-blue-500"
+									class="h-4 w-4 rounded border-strong-app text-accent focus:ring-accent/40"
 								/>
 							</td>
 							<td class="px-6 py-4">
-								<div class="font-medium text-slate-900">{u.name ?? u.email}</div>
-								<div class="mt-0.5 font-mono text-xs text-slate-500">
+								<div class="font-medium text-fg-app">{u.name ?? u.email}</div>
+								<div class="mt-0.5 font-mono text-xs text-muted-app">
 									ID: {u.id.slice(-4)}
 								</div>
 							</td>
-							<td class="px-6 py-4 text-slate-700">
+							<td class="px-6 py-4 text-secondary-app">
 								{u.expand?.user_type?.type ?? '—'}
 							</td>
-							<td class="px-6 py-4 text-slate-700">{quota.tierTotal} หน้า / เดือน</td>
+							<td class="px-6 py-4 text-secondary-app">{quota.tierTotal} หน้า / เดือน</td>
 							<td class="px-6 py-4">
-								<div class="text-sm font-medium text-slate-900">
-									<span class={quota.remaining <= 0 ? 'text-red-600' : ''}>
+								<div class="text-sm font-medium text-fg-app">
+									<span class={quota.remaining <= 0 ? 'text-danger' : ''}>
 										{quota.used}
 									</span>
-									/ {quota.remaining} หน้า
+									<span class="text-muted-app"> / {quota.remaining} หน้า</span>
 								</div>
-								<div class="mt-1.5 h-1.5 w-40 overflow-hidden rounded-full bg-slate-200">
-									<div
-										class="h-1.5 rounded-full transition-all {quotaBarColor(
-											quota.used,
-											quota.total
-										)}"
-										style="width: {usedPct}%"
-									></div>
+								<div class="mt-1.5 w-40">
+									<QuotaBar used={quota.used} total={quota.total} />
 								</div>
 							</td>
 							<td class="px-6 py-4">
@@ -430,7 +355,7 @@
 										<input type="hidden" name="userId" value={u.id} />
 										<div class="relative">
 											<Plus
-												class="pointer-events-none absolute left-1.5 top-1/2 h-3 w-3 -translate-y-1/2 text-blue-500"
+												class="pointer-events-none absolute left-1.5 top-1/2 h-3 w-3 -translate-y-1/2 text-muted-app"
 											/>
 											<input
 												type="number"
@@ -440,32 +365,26 @@
 												required
 												placeholder="จำนวน"
 												title="จำนวนหน้าที่ต้องการเพิ่ม (ใส่ค่าลบได้ถ้าต้องการลด)"
-												class="w-20 rounded-md border border-blue-200 bg-white py-1 pl-6 pr-2 text-xs font-mono text-slate-700 focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
+												class="w-20 rounded-md border border-app bg-surface py-1 pl-6 pr-2 text-xs font-mono text-fg-app placeholder:text-muted-app focus:border-accent focus:outline-none focus:ring-2 focus:ring-accent/40"
 											/>
 										</div>
-										<button
-											type="submit"
-											class="inline-flex items-center rounded-md border border-blue-200 bg-blue-50 px-2 py-1 text-xs font-medium text-blue-700 hover:bg-blue-100"
-										>
+										<Button variant="primary" size="sm" type="submit">
 											เพิ่ม
-										</button>
+										</Button>
 									</form>
 									<form method="POST" action="?/resetQuota" use:enhance>
 										<input type="hidden" name="userId" value={u.id} />
-										<button
-											type="submit"
-											class="inline-flex items-center gap-1 rounded-md border border-slate-300 bg-white px-2.5 py-1 text-xs font-medium text-slate-700 hover:bg-slate-50"
-										>
+										<Button variant="secondary" size="sm" type="submit">
 											<RefreshCw class="h-3 w-3" />
 											รีเซ็ต
-										</button>
+										</Button>
 									</form>
 								</div>
 							</td>
 						</tr>
 					{:else}
 						<tr>
-							<td colspan="6" class="px-6 py-8 text-center text-sm text-slate-500">
+							<td colspan="6" class="px-6 py-8 text-center text-sm text-muted-app">
 								ไม่พบพนักงานที่ตรงกับคำค้น
 							</td>
 						</tr>

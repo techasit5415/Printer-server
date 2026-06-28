@@ -1,13 +1,10 @@
 <script lang="ts">
 	import { enhance } from '$app/forms';
-	import {
-		Upload,
-		Hourglass,
-		Zap,
-		CheckCircle2,
-		AlertTriangle,
-		X
-	} from '@lucide/svelte';
+	import { Upload, X } from '@lucide/svelte';
+	import AlertBanner from '$lib/components/AlertBanner.svelte';
+	import Button from '$lib/components/Button.svelte';
+	import QuotaBar from '$lib/components/QuotaBar.svelte';
+	import StatusBadge from '$lib/components/StatusBadge.svelte';
 	import type { PageData, ActionData } from './$types';
 
 	let { data, form }: { data: PageData; form: ActionData } = $props();
@@ -52,113 +49,70 @@
 		submitUpload();
 	}
 
-	type StatusView = {
-		text: string;
-		sub: string;
-		textClass: string;
-		icon: typeof Hourglass;
-	};
-
-	function statusView(job: {
+	/**
+	 * Display label for a job status. Lives here (not in StatusBadge)
+	 * because we also surface queue position + ETA as sub-text, and
+	 * StatusBadge is a pure chip with no per-state sub-text support.
+	 */
+	function jobStatusSub(job: {
 		status: string;
 		queueAhead: number | null;
 		etaMinutes: number | null;
 		error_message?: string | null;
-	}): StatusView {
+	}): string {
 		switch (job.status) {
 			case 'processing':
-				return {
-					text: 'กำลังพิมพ์',
-					sub: 'เครื่องกำลังทำงานอยู่',
-					textClass: 'text-amber-700',
-					icon: Zap
-				};
+				return 'เครื่องกำลังทำงานอยู่';
 			case 'pending': {
 				const ahead = job.queueAhead ?? 0;
 				const eta = job.etaMinutes ?? ahead * 2;
-				return {
-					text: 'ต่อคิว',
-					sub:
-						ahead === 0
-							? 'กำลังจะเริ่มพิมพ์ในอีกสักครู่'
-							: `รออีก ${ahead} คิว (ประมาณ ${eta} นาที)`,
-					textClass: 'text-amber-700',
-					icon: Hourglass
-				};
+				return ahead === 0
+					? 'กำลังจะเริ่มพิมพ์ในอีกสักครู่'
+					: `รออีก ${ahead} คิว (ประมาณ ${eta} นาที)`;
 			}
 			case 'completed':
-				return {
-					text: 'เสร็จสิ้น',
-					sub: 'พิมพ์เสร็จเรียบร้อย',
-					textClass: 'text-emerald-700',
-					icon: CheckCircle2
-				};
+				return 'พิมพ์เสร็จเรียบร้อย';
 			case 'failed':
-				return {
-					text: 'ล้มเหลว',
-					sub: job.error_message ?? 'เกิดข้อผิดพลาด',
-					textClass: 'text-red-700',
-					icon: AlertTriangle
-				};
+				return job.error_message ?? 'เกิดข้อผิดพลาด';
 			default:
-				return {
-					text: job.status,
-					sub: '',
-					textClass: 'text-slate-700',
-					icon: Hourglass
-				};
+				return '';
 		}
 	}
 </script>
 
 <div class="mx-auto max-w-4xl px-6 py-8">
 	<header class="mb-8">
-		<h1 class="text-2xl font-semibold text-slate-900">พื้นที่ส่งงานพิมพ์ส่วนตัว</h1>
-		<p class="mt-2 text-sm text-slate-500">
-			อัปโหลดไฟล์เพื่อส่งพิมพ์อย่างปลอดภัย
-			ระบบจะแสดงผลเฉพาะทางของคุณเพื่อความเป็นส่วนตัวสูงสุด
-		</p>
+		<h1 class="text-2xl font-semibold tracking-tight text-fg-app">
+			อัปโหลดไฟล์
+		</h1>
+
 	</header>
 
 	{#if form?.message}
-		<p
-			class="mb-4 rounded-lg border px-3 py-2 text-sm {form.ok
-				? 'border-emerald-200 bg-emerald-50 text-emerald-700'
-				: 'border-red-200 bg-red-50 text-red-700'}"
-		>
-			{form.message}
-		</p>
+		<div class="mb-4">
+			<AlertBanner variant={form.ok ? 'success' : 'error'} message={form.message} />
+		</div>
 	{/if}
 
 	<!-- ── Quota summary ────────────────────────────────────────────── -->
-	<section class="mb-6 rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
+	<section class="mb-6 rounded-xl border border-app bg-surface p-5 shadow-sm transition-colors">
 		<div class="flex items-center justify-between gap-4">
 			<div>
-				<p class="text-xs font-mono uppercase tracking-widest text-slate-500">
+				<p class="text-xs font-mono text-muted-app">
 					โควต้าคงเหลือ (Quota Remaining)
 				</p>
-				<p class="mt-1 text-2xl font-semibold text-slate-900">
-					<span class={data.quota.remaining <= 0 ? 'text-red-600' : 'text-blue-600'}>
+				<p class="mt-1 text-2xl font-semibold text-fg-app">
+					<span class={data.quota.remaining <= 0 ? 'text-danger' : 'text-accent'}>
 						{data.quota.remaining}
 					</span>
-					<span class="text-base font-normal text-slate-500">/ {data.quota.total} หน้า</span>
+					<span class="text-base font-normal text-muted-app">/ {data.quota.total} หน้า</span>
 				</p>
 			</div>
 			{#if data.quota.total > 0}
-				{@const qPct = Math.min(100, Math.round((data.quota.used / data.quota.total) * 100))}
 				<div class="hidden flex-1 sm:block">
-					<div class="h-2 w-full overflow-hidden rounded-full bg-slate-200">
-						<div
-							class="h-2 rounded-full transition-all {qPct >= 90
-								? 'bg-red-500'
-								: qPct >= 70
-									? 'bg-amber-500'
-									: 'bg-blue-500'}"
-							style="width: {qPct}%"
-						></div>
-					</div>
-					<p class="mt-1 text-right text-xs text-slate-500">
-						ใช้ไปแล้ว {data.quota.used} หน้า ({qPct}%)
+					<QuotaBar used={data.quota.used} total={data.quota.total} />
+					<p class="mt-1 text-right text-xs text-muted-app">
+						ใช้ไปแล้ว {data.quota.used} หน้า ({Math.round((data.quota.used / data.quota.total) * 100)}%)
 					</p>
 				</div>
 			{/if}
@@ -181,9 +135,11 @@
 			}}
 		>
 			<label
-				class="flex cursor-pointer flex-col items-center justify-center rounded-xl border-2 border-dashed px-6 py-12 text-center transition-colors {dragOver
-					? 'border-blue-500 bg-blue-50'
-					: 'border-blue-300 bg-blue-50/30 hover:bg-blue-50/60'}"
+				class={`flex cursor-pointer flex-col items-center justify-center rounded-md border-2 border-dashed px-6 py-12 text-center transition-colors ${
+					dragOver
+						? 'border-accent bg-accent-soft'
+						: 'border-strong-app bg-elevated hover:border-accent hover:bg-accent-soft/40'
+				}`}
 				ondragover={(e) => {
 					e.preventDefault();
 					dragOver = true;
@@ -191,12 +147,17 @@
 				ondragleave={() => (dragOver = false)}
 				ondrop={onDropUpload}
 			>
-				<Upload class="mb-3 h-7 w-7 text-slate-700" />
-				<p class="text-base font-medium text-slate-900">
-					คลิกหรือลากไฟล์มาวางที่นี่เพื่อพิมพ์
+				<Upload
+					class={`mb-3 h-7 w-7 ${dragOver ? 'text-accent' : 'text-muted-app'}`}
+				/>
+				<p class="text-base font-medium text-fg-app">
+					{submitting ? 'กำลังส่งงานพิมพ์...' : 'คลิกหรือลากไฟล์มาวางที่นี่เพื่อพิมพ์'}
 				</p>
-				<p class="mt-1 text-xs text-slate-500">
-					รองรับไฟล์เอกสารและรูปภาพทุกประเภท (สูงสุด 25MB)
+				<!-- <p class="text-base font-medium text-fg-app">
+					{submitting ? 'กำลังส่งงานพิมพ์...' : 'คลิกหรือลากไฟล์มาวางที่นี่เพื่อพิมพ์'}
+				</p> -->
+				<p class="mt-1 text-xs text-muted-app">
+					รองรับ PDF / PS / JPG / PNG / TXT (สูงสุด 25MB)
 				</p>
 				<input
 					bind:this={uploadFileEl}
@@ -214,19 +175,23 @@
 	</section>
 
 	<!-- ── Your Job ──────────────────────────────────────────────────── -->
-	<section class="rounded-xl border border-slate-200 bg-white shadow-sm">
-		<div class="border-b border-slate-200 px-6 py-4">
-			<h2 class="text-base font-semibold text-slate-900">งานพิมพ์ของคุณ (Your Job)</h2>
+	<section class="rounded-xl border border-app bg-surface shadow-sm transition-colors">
+		<div class="flex items-center gap-2 border-b border-app px-6 py-4">
+			<Upload class="h-4 w-4 text-accent" />
+			<h2 class="text-base font-semibold text-fg-app">งานพิมพ์ของคุณ (Your Job)</h2>
 		</div>
 		<div class="overflow-x-auto">
 			{#if data.jobs.length === 0}
-				<p class="px-6 py-10 text-center text-sm text-slate-500">
-					ยังไม่มีงานพิมพ์ — ลากไฟล์มาวางที่กล่องด้านบนเพื่อเริ่มงานแรกของคุณ
-				</p>
+				<div class="px-6 py-12 text-center">
+					<Upload class="mx-auto mb-3 h-8 w-8 text-muted-app" />
+					<p class="text-sm text-muted-app">
+						ยังไม่มีงานพิมพ์ — ลากไฟล์มาวางที่กล่องด้านบนเพื่อเริ่มงานแรกของคุณ
+					</p>
+				</div>
 			{:else}
 				<table class="w-full text-sm">
 					<thead
-						class="border-b border-slate-200 text-xs uppercase tracking-wide text-slate-500"
+						class="border-b border-app text-xs tracking-wide text-muted-app"
 					>
 						<tr>
 							<th class="px-6 py-3 text-left font-medium">ชื่อเอกสาร</th>
@@ -236,36 +201,30 @@
 							<th class="px-6 py-3 text-left font-medium">การจัดการ</th>
 						</tr>
 					</thead>
-					<tbody class="divide-y divide-slate-200">
+					<tbody class="divide-y divide-app">
 						{#each data.jobs as job (job.id)}
-							{@const status = statusView(job)}
-							<tr class="hover:bg-slate-50/60">
-								<td class="px-6 py-4 font-medium text-slate-900">{job.filename}</td>
-								<td class="px-6 py-4 text-slate-700">{job.printer_name}</td>
-								<td class="px-6 py-4 text-slate-700">{job.pages} หน้า</td>
+							{@const sub = jobStatusSub(job)}
+							<tr class="hover:bg-elevated transition-colors">
+								<td class="px-6 py-4 font-medium text-fg-app">{job.filename}</td>
+								<td class="px-6 py-4 text-secondary-app">{job.printer_name}</td>
+								<td class="px-6 py-4 text-secondary-app">{job.pages} หน้า</td>
 								<td class="px-6 py-4">
-									<div class="inline-flex items-center gap-1.5 {status.textClass}">
-										<status.icon class="h-4 w-4" />
-										<span class="font-medium">{status.text}</span>
-									</div>
-									{#if status.sub}
-										<div class="mt-0.5 text-xs text-slate-500">{status.sub}</div>
+									<StatusBadge status={job.status} />
+									{#if sub}
+										<p class="mt-1 text-xs text-muted-app">{sub}</p>
 									{/if}
 								</td>
 								<td class="px-6 py-4">
 									{#if job.status === 'pending' || job.status === 'processing'}
 										<form method="POST" action="?/cancel" use:enhance>
 											<input type="hidden" name="jobId" value={job.id} />
-											<button
-												type="submit"
-												class="inline-flex items-center gap-1 rounded-md border border-red-200 bg-red-50 px-2.5 py-1 text-xs font-medium text-red-700 hover:bg-red-100"
-											>
+											<Button variant="danger" size="sm" type="submit">
 												<X class="h-3 w-3" />
 												ยกเลิกงานพิมพ์
-											</button>
+											</Button>
 										</form>
 									{:else}
-										<span class="text-xs text-slate-400">-</span>
+										<span class="text-xs text-muted-app">-</span>
 									{/if}
 								</td>
 							</tr>

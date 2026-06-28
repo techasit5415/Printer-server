@@ -2,9 +2,8 @@
 	import { page } from '$app/state';
 	import ThemeSwitcher from './ThemeSwitcher.svelte';
 	import {
-		Server,
-		FilePlus2,
-		Activity,
+		Printer,
+		Upload,
 		ShieldCheck,
 		LogOut,
 		LogIn,
@@ -16,9 +15,8 @@
 	const isAdmin = $derived(user?.role === 'admin');
 
 	const links = $derived([
-		...(user ? [{ href: '/request', label: 'Request', icon: FilePlus2 }] : []),
-		...(user ? [{ href: '/status', label: 'Status', icon: Activity }] : []),
-		...(isAdmin ? [{ href: '/admin', label: 'Admin', icon: ShieldCheck }] : [])
+		...(user && !isAdmin ? [{ href: '/user', label: 'พิมพ์', icon: Upload }] : []),
+		...(isAdmin ? [{ href: '/admin', label: 'แผงควบคุม', icon: ShieldCheck }] : [])
 	]);
 
 	// Mobile menu state — separate from the desktop nav so the hamburger
@@ -39,12 +37,12 @@
 	class="sticky top-0 z-30 border-b border-app bg-app/80 backdrop-blur transition-colors duration-300"
 >
 	<div class="mx-auto flex h-14 max-w-[1400px] items-center justify-between gap-4 px-4 sm:gap-6 sm:px-6">
-		<a href="/" class="flex items-center gap-2 font-mono text-sm tracking-tight text-app">
-			<Server class="h-4 w-4 text-accent" />
-			<span class="font-semibold">init.d</span>
+		<a href="/" class="flex items-center gap-2 font-mono text-sm tracking-tight text-fg-app">
+			<Printer class="h-4 w-4 text-accent" />
+			<span class="font-semibold">PrintOS</span>
 			<!-- Brand suffix only shows from md up — keeps the row from
 			     getting crowded on phones where every pixel counts. -->
-			<span class="hidden text-muted-app md:inline">/ infrastructure provisioning</span>
+			<span class="hidden text-muted-app md:inline">/ print server console</span>
 		</a>
 
 		<!-- Desktop nav — hidden below lg where the hamburger takes over. -->
@@ -53,9 +51,9 @@
 				{@const active = page.url.pathname.startsWith(link.href)}
 				<a
 					href={link.href}
-					class="inline-flex h-8 items-center gap-1.5 rounded-md px-3 font-mono text-xs uppercase tracking-widest transition-colors duration-200 {active
-						? 'bg-elevated text-app'
-						: 'text-secondary-app hover:bg-elevated hover:text-app'}"
+					class="inline-flex h-8 items-center gap-1.5 rounded-md px-3 font-mono text-xs transition-colors duration-200 {active
+						? 'bg-elevated text-fg-app'
+						: 'text-secondary-app hover:bg-elevated hover:text-fg-app'}"
 				>
 					<link.icon class="h-3.5 w-3.5 {active ? 'text-accent' : ''}" />
 					{link.label}
@@ -68,7 +66,7 @@
 					<form action="/logout" method="POST">
 						<button
 							type="submit"
-							class="inline-flex h-9 items-center gap-1.5 rounded-md border border-app bg-surface px-3 font-mono text-xs uppercase tracking-widest text-secondary-app transition-colors duration-200 hover:border-strong-app hover:text-app"
+							class="inline-flex h-9 items-center gap-1.5 rounded-md border border-app bg-surface px-3 font-mono text-xs text-secondary-app transition-colors duration-200 hover:border-strong-app hover:text-fg-app"
 							title={user.email}
 						>
 							<LogOut class="h-3.5 w-3.5" />
@@ -78,7 +76,7 @@
 				{:else}
 					<a
 						href="/login"
-						class="inline-flex h-9 items-center gap-1.5 rounded-md border border-app bg-surface px-3 font-mono text-xs uppercase tracking-widest text-secondary-app transition-colors duration-200 hover:border-strong-app hover:text-app"
+						class="inline-flex h-9 items-center gap-1.5 rounded-md border border-app bg-surface px-3 font-mono text-xs text-secondary-app transition-colors duration-200 hover:border-strong-app hover:text-fg-app"
 					>
 						<LogIn class="h-3.5 w-3.5" />
 						<span class="hidden xl:inline">Sign in</span>
@@ -97,7 +95,7 @@
 						type="submit"
 						aria-label="Sign out"
 						title={user.email}
-						class="inline-flex h-9 w-9 items-center justify-center rounded-md border border-app bg-surface text-secondary-app transition-colors duration-200 hover:border-strong-app hover:text-app"
+						class="inline-flex h-9 w-9 items-center justify-center rounded-md border border-app bg-surface text-secondary-app transition-colors duration-200 hover:border-strong-app hover:text-fg-app"
 					>
 						<LogOut class="h-3.5 w-3.5" />
 					</button>
@@ -106,7 +104,7 @@
 				<a
 					href="/login"
 					aria-label="Sign in"
-					class="inline-flex h-9 w-9 items-center justify-center rounded-md border border-app bg-surface text-secondary-app transition-colors duration-200 hover:border-strong-app hover:text-app"
+					class="inline-flex h-9 w-9 items-center justify-center rounded-md border border-app bg-surface text-secondary-app transition-colors duration-200 hover:border-strong-app hover:text-fg-app"
 				>
 					<LogIn class="h-3.5 w-3.5" />
 				</a>
@@ -116,7 +114,7 @@
 				aria-label={mobileOpen ? 'Close menu' : 'Open menu'}
 				aria-expanded={mobileOpen}
 				onclick={() => (mobileOpen = !mobileOpen)}
-				class="inline-flex h-9 w-9 items-center justify-center rounded-md border border-app bg-surface text-secondary-app transition-colors duration-200 hover:border-strong-app hover:text-app"
+				class="inline-flex h-9 w-9 items-center justify-center rounded-md border border-app bg-surface text-secondary-app transition-colors duration-200 hover:border-strong-app hover:text-fg-app"
 			>
 				{#if mobileOpen}
 					<X class="h-4 w-4" />
@@ -138,9 +136,9 @@
 					{@const active = page.url.pathname.startsWith(link.href)}
 					<a
 						href={link.href}
-						class="inline-flex h-10 items-center gap-2 rounded-md px-3 font-mono text-xs uppercase tracking-widest transition-colors duration-200 {active
-							? 'bg-elevated text-app'
-							: 'text-secondary-app hover:bg-elevated hover:text-app'}"
+						class="inline-flex h-10 items-center gap-2 rounded-md px-3 font-mono text-xs transition-colors duration-200 {active
+							? 'bg-elevated text-fg-app'
+							: 'text-secondary-app hover:bg-elevated hover:text-fg-app'}"
 					>
 						<link.icon class="h-4 w-4 {active ? 'text-accent' : ''}" />
 						{link.label}
