@@ -1,24 +1,29 @@
 /**
- * Quota helpers — backed by TWO PocketBase collections.
+ * Quota helpers — backed by the `Quota` PocketBase collection.
  *
- *   - `Total_Quota` — each row is a "quota package" (number). One row
- *                      can be linked from many Quota rows.
+ *   - `Total_Quota` (package collection) — LEGACY. Kept around for
+ *                       rollback safety but no longer the source of
+ *                       truth. Old `Quota` rows may still point at
+ *                       a package via the `Quota` relation; we read
+ *                       those as a migration fallback only.
  *
- *   - `Quota`       — one row PER USER:
+ *   - `Quota`        — one row PER USER:
  *                        `relation`    → `users`        (who owns it)
- *                        `Quota`       → `Total_Quota`  (the linked package,
- *                                                          whose `Total_Quota`
- *                                                          number is the ceiling)
- *                        `Total_Quota` → number         (cached copy of the
- *                                                          linked package's value,
- *                                                          for fast reads)
+ *                        `Quota`       → `Total_Quota`  (LEGACY relation,
+ *                                                          only consulted
+ *                                                          as a fallback
+ *                                                          when the per-user
+ *                                                          number is missing)
+ *                        `Total_Quota` → number         (per-user ceiling —
+ *                                                          THIS is the source
+ *                                                          of truth, "ของใคร
+ *                                                          ของมัน")
  *                        `Use`         → USED pages
  *
- * `Use` and `Quota` (relation) are the two fields we read / mutate
- * directly. `Total_Quota` (number) is kept in sync by writers but the
- * relation is the source of truth — admin "+ เพิ่มโควต้า" bumps the
- * linked `Total_Quota.Total_Quota` value and we mirror that into
- * `Total_Quota` on the next write.
+ * `Use` and the per-user `Total_Quota` (number) are the two fields we
+ * read / mutate directly. The linked package, if any, is metadata.
+ * Admin "+ เพิ่มโควต้า" bumps the user's own row's `Total_Quota`
+ * number — never the package.
  */
 import type { AppPocketBase } from './pocketbase';
 import { serverEnv } from './env';
@@ -37,10 +42,13 @@ interface TotalQuotaPackage {
 interface QuotaRow {
 	id: string;
 	relation?: string;
-	/** Relation → `Total_Quota` row id. The row's `Total_Quota`
-	 *  number is what we display as `total`. */
+	/** LEGACY relation → a `Total_Quota` package row. Kept on disk
+	 *  for backwards compat; `resolveTotal` only consults it as a
+	 *  fallback when the per-user number is missing. */
 	Quota?: string;
-	/** Cached ceiling value, mirrored from the linked package. */
+	/** Per-user ceiling — source of truth ("ของใครของมัน").
+	 *  Optional in the PocketBase schema; `resolveTotal` handles the
+	 *  `undefined` case via the legacy package / env default. */
 	Total_Quota: number;
 	Use: number;
 	expand?: { Quota?: TotalQuotaPackage };
@@ -63,27 +71,21 @@ async function findUserQuota(pb: AppPocketBase, userId: string): Promise<QuotaRo
 	}
 }
 
-async function findDefaultPackage(pb: AppPocketBase): Promise<TotalQuotaPackage | null> {
-	try {
-		return await pb.collection('Total_Quota').getFirstListItem<TotalQuotaPackage>('');
-	} catch {
-		return null;
-	}
-}
-
 /**
- * Resolve the ceiling for a single Quota row — STRICTLY from the
- * linked `Total_Quota` package via the `Quota` relation. If the
- * relation id is set but `expand` didn't return the package, we
- * fetch it directly. As a last resort (no relation at all) we fall
- * back to the env default.
+ * Resolve the ceiling for a single Quota row. The per-user
+ * `Total_Quota` NUMBER on the row itself is the source of truth —
+ * "ของใครของมัน". If the field is missing/unset on the row (legacy
+ * data), we fall back to the linked `Total_Quota` package via the
+ * `Quota` relation as a one-time migration aid. As a last resort
+ * (no row, no relation) we return the env default.
  *
- * We do NOT trust the cached `Total_Quota` number column — the
- * relation is the single source of truth for "สิทธิ์หลัก".
+ * Note: an explicit `0` on the row IS respected (admin can lock a
+ * user out) — we only fall back when the value is missing or
+ * non-finite.
  */
 async function resolveTotal(pb: AppPocketBase, row: QuotaRow | null): Promise<number> {
-	const pkg = row?.expand?.Quota?.Total_Quota;
-	if (typeof pkg === 'number' && Number.isFinite(pkg)) return clampInt(pkg);
+	const own = row?.Total_Quota;
+	if (typeof own === 'number' && Number.isFinite(own)) return clampInt(own);
 
 	if (row?.Quota) {
 		try {
@@ -103,8 +105,8 @@ async function resolveTotal(pb: AppPocketBase, row: QuotaRow | null): Promise<nu
 
 /**
  * Read-modify-write a user's Quota row with a CAS retry loop. Lazily
- * creates the row (pointing at the first available `Total_Quota`
- * package) on first write.
+ * creates the row — seeded with the env default ceiling — on first
+ * write. The row's own `Total_Quota` number is the per-user ceiling.
  */
 async function mutate(
 	pb: AppPocketBase,
@@ -114,12 +116,9 @@ async function mutate(
 	let row = await findUserQuota(pb, userId);
 
 	if (!row) {
-		const pkg = await findDefaultPackage(pb);
-		const seedTotal = pkg?.Total_Quota ?? serverEnv.defaultQuotaPages;
 		row = (await pb.collection('Quota').create({
 			relation: userId,
-			Quota: pkg?.id ?? null,
-			Total_Quota: clampInt(seedTotal),
+			Total_Quota: serverEnv.defaultQuotaPages,
 			Use: 0
 		})) as QuotaRow;
 	}
@@ -143,8 +142,9 @@ async function mutate(
 }
 
 /**
- * Read-only quota lookup. `total` is pulled from the linked
- * `Total_Quota` package (via the `Quota` relation); `Use` is read
+ * Read-only quota lookup. `total` is pulled from the per-user
+ * `Total_Quota` number on the row itself (via `resolveTotal`, which
+ * may fall back to the legacy package relation); `Use` is read
  * straight off the row. `remaining` is computed as `total - used`.
  */
 export async function getQuota(
@@ -153,8 +153,7 @@ export async function getQuota(
 ): Promise<QuotaSnapshot> {
 	const row = await findUserQuota(pb, userId);
 	if (!row) {
-		const pkg = await findDefaultPackage(pb);
-		const total = clampInt(pkg?.Total_Quota ?? serverEnv.defaultQuotaPages);
+		const total = serverEnv.defaultQuotaPages;
 		return { remaining: total, used: 0, total };
 	}
 	const total = await resolveTotal(pb, row);
@@ -215,14 +214,20 @@ export async function refundQuota(
 }
 
 /**
- * Admin "+ เพิ่มโควต้า" — bump the linked `Total_Quota` package's
- * `Total_Quota` value by `delta` (which shows up in the "สิทธิ์หลัก"
- * and "โควต้าที่ใช้ไป" columns immediately, since `total` is read
- * from that relation).
+ * Admin "+ เพิ่มโควต้า" — bump the user's OWN `Quota` row's
+ * `Total_Quota` number by `delta`. "ของใครของมัน" — never touches
+ * a shared package row, so a +N for User A cannot leak into User B.
  *
- * If the row has no relation, fall back to the most recently updated
- * `Total_Quota` row so the admin's "+N" intent still lands somewhere
- * visible.
+ * If the user has no `Quota` row yet, we create one seeded with
+ * `max(default, default + delta)` so the admin's "+N" intent is
+ * honoured (a "+10" on a brand-new user shouldn't be capped at the
+ * env default).
+ *
+ * If the existing row has no per-user `Total_Quota` set (legacy
+ * data), we read the current ceiling via `resolveTotal` (which may
+ * fall back to the package / env default) and write the new value
+ * back onto the per-user field — promoting it to the source of
+ * truth on the first bump.
  */
 export async function adjustRemaining(
 	pb: AppPocketBase,
@@ -231,37 +236,17 @@ export async function adjustRemaining(
 ): Promise<QuotaSnapshot> {
 	if (!Number.isFinite(delta) || delta === 0) return getQuota(pb, userId);
 
-	const row = await findUserQuota(pb, userId);
+	const existing = await findUserQuota(pb, userId);
 
-	let pkg: TotalQuotaPackage | null = row?.expand?.Quota ?? null;
-
-	if (!pkg && row?.Quota) {
-		try {
-			pkg = (await pb.collection('Total_Quota').getOne<TotalQuotaPackage>(
-				row.Quota
-			)) as TotalQuotaPackage;
-		} catch {
-			pkg = null;
-		}
-	}
-
-	if (!pkg) {
-		try {
-			const list = await pb.collection('Total_Quota').getList<TotalQuotaPackage>(1, 1, {
-				sort: '-updated'
-			});
-			pkg = list.items[0] ?? null;
-		} catch {
-			pkg = null;
-		}
-	}
-
-	if (pkg) {
-		const nextTotal = clampInt(pkg.Total_Quota + delta);
-		await pb.collection('Total_Quota').update(pkg.id, { Total_Quota: nextTotal });
+	if (existing) {
+		const currentTotal = await resolveTotal(pb, existing);
+		const nextTotal = clampInt(currentTotal + delta);
+		await pb.collection('Quota').update(existing.id, { Total_Quota: nextTotal });
 	} else {
-		await pb.collection('Total_Quota').create({
-			Total_Quota: clampInt(Math.max(serverEnv.defaultQuotaPages + delta, delta))
+		await pb.collection('Quota').create({
+			relation: userId,
+			Total_Quota: clampInt(Math.max(serverEnv.defaultQuotaPages, serverEnv.defaultQuotaPages + delta)),
+			Use: 0
 		});
 	}
 
@@ -285,8 +270,9 @@ export async function resetToDefault(
 
 /**
  * Bulk quota snapshot for the admin table — one round-trip. `total`
- * comes from each user's own `Total_Quota` package (via the `Quota`
- * relation).
+ * comes from each user's own per-user `Total_Quota` number on the
+ * row (via `resolveTotal`, which may fall back to the legacy
+ * package relation for rows that haven't been migrated yet).
  */
 export interface UserQuotaRow {
 	userId: string;
