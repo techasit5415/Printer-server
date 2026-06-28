@@ -1,6 +1,5 @@
 <script lang="ts">
 	import { page } from '$app/state';
-	import ThemeSwitcher from './ThemeSwitcher.svelte';
 	import {
 		Printer,
 		Upload,
@@ -61,7 +60,6 @@
 			{/each}
 
 			<div class="ml-2 flex items-center gap-2">
-				<ThemeSwitcher />
 				{#if user}
 					<form action="/logout" method="POST">
 						<button
@@ -88,7 +86,6 @@
 		<!-- Mobile controls — hamburger + always-visible auth button so
 		     the user is never trapped without a sign-out. -->
 		<div class="flex items-center gap-2 lg:hidden">
-			<ThemeSwitcher />
 			{#if user}
 				<form action="/logout" method="POST">
 					<button
