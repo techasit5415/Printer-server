@@ -64,7 +64,13 @@ export const load: PageServerLoad = async ({ locals }) => {
 	const pb = await createSuperuserClient();
 
 	const [users, jobsResult, quotasByUser] = await Promise.all([
-		pb.collection('users').getFullList<UsersRecord>({ sort: 'name' }),
+		pb.collection('users').getFullList<UsersRecord>({
+			sort: 'name',
+			// Expand `user_type` so the admin table's "แผนก / ฝ่าย"
+			// column can show the department name (and the search box
+			// can match against it) without N+1 fetches.
+			expand: 'user_type'
+		}),
 		pb.collection('print_jobs').getList<PrintJobsRecord>(1, 100, {
 			sort: '-created',
 			expand: 'user'

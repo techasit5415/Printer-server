@@ -26,7 +26,7 @@ export interface UsersRecord {
 	// Quota fields live in dedicated `Quota` / `Total_Quota` collections,
 	// NOT on the user record — see `$lib/server/quota.ts`.
 	expand?: {
-		user_type?: { id: string; type?: string; name?: string };
+		user_type?: { id: string; type?: string };
 	};
 }
 

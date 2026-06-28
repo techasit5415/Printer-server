@@ -27,7 +27,8 @@
 				(u.name ?? '').toLowerCase().includes(q) ||
 				u.email.toLowerCase().includes(q) ||
 				(u.role ?? '').toLowerCase().includes(q) ||
-				u.id.toLowerCase().includes(q)
+				u.id.toLowerCase().includes(q) ||
+				(u.expand?.user_type?.type ?? '').toLowerCase().includes(q)
 			);
 		});
 	});
@@ -233,7 +234,7 @@
 				>
 					<tr>
 						<th class="px-6 py-3 text-left font-medium">พนักงาน (User)</th>
-						<th class="px-6 py-3 text-left font-medium">แผนก / ฝ่าย</th>
+						<th class="px-6 py-3 text-left font-medium">  ยศ</th>
 						<th class="px-6 py-3 text-left font-medium">สิทธิ์หลัก</th>
 						<th class="px-6 py-3 text-left font-medium">โควต้าที่ใช้ไป</th>
 						<th class="px-6 py-3 text-left font-medium">เครื่องมือจัดการโควต้า</th>
@@ -253,7 +254,7 @@
 								</div>
 							</td>
 							<td class="px-6 py-4 text-slate-700">
-								{u.role === 'admin' ? 'ผู้ดูแลระบบ' : 'พนักงาน'}
+								{u.expand?.user_type?.type ?? '—'}
 							</td>
 							<td class="px-6 py-4 text-slate-700">{quota.tierTotal} หน้า / เดือน</td>
 							<td class="px-6 py-4">
