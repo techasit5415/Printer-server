@@ -1,8 +1,9 @@
 import { error, redirect, type Actions } from '@sveltejs/kit';
 import type { PageServerLoad } from './$types';
 import type { PrintJobsRecord, UsersRecord } from '$lib/server/pocketbase';
-import { adjustRemaining, listAllQuotas, resetToDefault } from '$lib/server/quota';
+import { adjustRemaining, listAllQuotas, resetToDefault, refundQuota } from '$lib/server/quota';
 import { clearSession } from '$lib/server/session';
+import { cancelPrintJob } from '$lib/server/print';
 
 /**
  * ปรับลำดับคิวพิมพ์ในระบบ
@@ -169,10 +170,25 @@ resetQuota: async ({ request, locals }) => {
         if (!jobId) return { ok: false, message: 'ข้อมูลไม่ถูกต้อง' };
 
         try {
+            const job = await locals.pb.collection('print_jobs').getOne<PrintJobsRecord>(jobId);
+
             await locals.pb.collection('print_jobs').update(jobId, {
                 status: 'failed',
                 error_message: 'Suspended by admin'
             });
+
+            // Refund quota to the user
+            try {
+                await refundQuota(locals.pb, job.user, job.pages);
+            } catch (refundErr) {
+                console.error('[admin/suspend] refund failed:', refundErr);
+            }
+
+            // Cancel job in CUPS
+            if (job.cups_job_id) {
+                await cancelPrintJob(job.cups_job_id);
+            }
+
             return { ok: true, message: 'ระงับงานเรียบร้อย' };
         } catch (e) {
             console.error('[admin/suspend] failed:', e);

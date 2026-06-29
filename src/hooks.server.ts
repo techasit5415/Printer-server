@@ -10,6 +10,10 @@
 import type { Handle } from '@sveltejs/kit';
 import { createPb } from '$lib/pb';
 import type { UserRole } from '$lib/types';
+import { startPrintJobMonitor } from '$lib/server/monitor';
+
+// Start background print job monitor
+startPrintJobMonitor();
 
 interface UserTypeRef {
     type?: string;

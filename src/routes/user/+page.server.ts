@@ -6,7 +6,7 @@ import {
 	createPocketBaseClient,
 	type PrintJobsRecord
 } from '$lib/server/pocketbase';
-import { safeUnlink, submitPrintJob } from '$lib/server/print';
+import { safeUnlink, submitPrintJob, cancelPrintJob, getPageCountOfFile } from '$lib/server/print';
 import { deductQuota, getQuota, refundQuota } from '$lib/server/quota';
 import { clearSession } from '$lib/server/session';
 import { serverEnv } from '$lib/server/env';
@@ -136,11 +136,6 @@ export const actions: Actions = {
 		const colorRaw = String(data.get('color') ?? 'color');
 		const color: 'color' | 'mono' = colorRaw === 'mono' ? 'mono' : 'color';
 
-		// We don't know the page count up-front without rendering the
-		// document — conservatively charge `copies` pages and refund if
-		// CUPS reports zero / cancels.
-		const estimatedPages = copies;
-
 		const pb = createPocketBaseClient();
 		pb.authStore.save(locals.user.token);
 
@@ -159,13 +154,6 @@ export const actions: Actions = {
 			return { ok: false, message: 'เซสชันหมดอายุ กรุณา login ใหม่' };
 		}
 
-		// Reserve the quota BEFORE touching the disk so quota abuse is
-		// impossible regardless of what happens later.
-		const reservation = await deductQuota(pb, locals.user.id, estimatedPages);
-		if (!reservation) {
-			return { ok: false, message: 'โควต้าคงเหลือไม่เพียงพอ' };
-		}
-
 		// Make sure the temp dir exists, then stream the upload to disk
 		// in chunks — never load the whole buffer into RAM.
 		await mkdir(serverEnv.tempDir, { recursive: true });
@@ -176,6 +164,7 @@ export const actions: Actions = {
 		const tempPath = path.join(serverEnv.tempDir, `${randomUUID()}-${safeName}`);
 
 		let jobRecordId: string | null = null;
+		let chargedPages = 0;
 
 		try {
 			// Stream to disk via Web ReadableStream → Node WritableStream.
@@ -197,6 +186,17 @@ export const actions: Actions = {
 				writeStream.on('finish', () => resolve());
 			});
 
+			// Calculate actual page count
+			const actualPages = await getPageCountOfFile(tempPath, ext);
+			const totalPages = actualPages * copies;
+
+			// Reserve the quota based on the actual pages
+			const reservation = await deductQuota(pb, locals.user.id, totalPages);
+			if (!reservation) {
+				throw new Error('INSUFFICIENT_QUOTA');
+			}
+			chargedPages = totalPages;
+
 			// Record the job in PB before touching CUPS — we want a
 			// durable audit trail even if the daemon is unreachable.
 			// `cups_job_id` and `error_message` are intentionally
@@ -208,7 +208,7 @@ export const actions: Actions = {
 				user: locals.user.id,
 				filename: safeName,
 				status: 'pending',
-				pages: estimatedPages,
+				pages: totalPages,
 				copies,
 				printer_name: serverEnv.printerName
 			};
@@ -233,7 +233,7 @@ export const actions: Actions = {
 			});
 
 			await pb.collection('print_jobs').update<PrintJobsRecord>(created.id, {
-				status: 'completed',
+				status: 'processing',
 				cups_job_id: result.jobId
 			});
 
@@ -244,6 +244,10 @@ export const actions: Actions = {
 				quota: reservation
 			};
 		} catch (err) {
+			if (err instanceof Error && err.message === 'INSUFFICIENT_QUOTA') {
+				return { ok: false, message: 'โควต้าคงเหลือไม่เพียงพอ' };
+			}
+
 			// Log the full error to the dev server console so the
 			// actual failure point (validation, mkdir, stream, PB
 			// create, CUPS submit) is debuggable. The user-facing
@@ -269,11 +273,13 @@ export const actions: Actions = {
 			// user's quota "stuck" (deducted but not returned) after
 			// a failed print, with no signal that anything was wrong.
 			let refundOk = false;
-			try {
-				await refundQuota(pb, locals.user.id, estimatedPages);
-				refundOk = true;
-			} catch (refundErr) {
-				console.error('[user/print] refund failed:', refundErr);
+			if (chargedPages > 0) {
+				try {
+					await refundQuota(pb, locals.user.id, chargedPages);
+					refundOk = true;
+				} catch (refundErr) {
+					console.error('[user/print] refund failed:', refundErr);
+				}
 			}
 			if (jobRecordId) {
 				try {
@@ -293,7 +299,7 @@ export const actions: Actions = {
 				pbFieldErrors && Object.keys(pbFieldErrors).length > 0
 					? ` (ฟิลด์ที่มีปัญหา: ${Object.keys(pbFieldErrors).join(', ')})`
 					: '';
-			const refundNote = refundOk ? '' : ' (คืนโควต้าไม่สำเร็จ — โควต้าอาจถูกหักค้างไว้ กรุณาแจ้ง admin)';
+			const refundNote = refundOk || chargedPages === 0 ? '' : ' (คืนโควต้าไม่สำเร็จ — โควต้าอาจถูกหักค้างไว้ กรุณาแจ้ง admin)';
 			const message =
 				err instanceof Error
 					? `ส่งงานพิมพ์ไม่สำเร็จ: ${err.message}${fieldHint}${refundNote}`
@@ -334,6 +340,10 @@ export const actions: Actions = {
 				await refundQuota(pb, locals.user.id, job.pages);
 			} catch {
 				/* swallow — refund is best-effort */
+			}
+			// Cancel in CUPS if queued
+			if (job.cups_job_id) {
+				await cancelPrintJob(job.cups_job_id);
 			}
 			return { ok: true, message: 'ยกเลิกงานพิมพ์เรียบร้อย' };
 		} catch (e) {

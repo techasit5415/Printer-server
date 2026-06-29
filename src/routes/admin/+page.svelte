@@ -13,6 +13,9 @@
 	import QuotaBar from '$lib/components/QuotaBar.svelte';
 	import StatusBadge from '$lib/components/StatusBadge.svelte';
 	import type { PageData, ActionData } from './$types';
+	import { onMount } from 'svelte';
+	import { pbBrowser } from '$lib/pb.client';
+	import { invalidateAll } from '$app/navigation';
 
 	let { data, form }: { data: PageData; form: ActionData } = $props();
 
@@ -117,6 +120,32 @@
 		if (u?.email) return u.email;
 		return job.user;
 	}
+
+	onMount(async () => {
+		let unsubscribeJobs: (() => void) | null = null;
+		let unsubscribeQuota: (() => void) | null = null;
+
+		try {
+			const pb = pbBrowser();
+
+			// Subscribe to all print_jobs updates
+			unsubscribeJobs = await pb.collection('print_jobs').subscribe('*', () => {
+				invalidateAll();
+			});
+
+			// Subscribe to all Quota updates
+			unsubscribeQuota = await pb.collection('Quota').subscribe('*', () => {
+				invalidateAll();
+			});
+		} catch (err) {
+			console.error('Failed to subscribe to admin realtime updates:', err);
+		}
+
+		return () => {
+			if (unsubscribeJobs) unsubscribeJobs();
+			if (unsubscribeQuota) unsubscribeQuota();
+		};
+	});
 </script>
 
 <div class="mx-auto max-w-6xl px-6 py-8">
