@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { enhance } from '$app/forms';
+	import { enhance } from "$app/forms";
 	import {
 		BookOpen,
 		Check,
@@ -9,16 +9,16 @@
 		Plus,
 		Printer,
 		Upload,
-		X
-	} from '@lucide/svelte';
-	import AlertBanner from '$lib/components/AlertBanner.svelte';
-	import Button from '$lib/components/Button.svelte';
-	import QuotaBar from '$lib/components/QuotaBar.svelte';
-	import StatusBadge from '$lib/components/StatusBadge.svelte';
-	import type { PageData, ActionData } from './$types';
-	import { onMount } from 'svelte';
-	import { pbBrowser } from '$lib/pb.client';
-	import { invalidateAll } from '$app/navigation';
+		X,
+	} from "@lucide/svelte";
+	import AlertBanner from "$lib/components/AlertBanner.svelte";
+	import Button from "$lib/components/Button.svelte";
+	import QuotaBar from "$lib/components/QuotaBar.svelte";
+	import StatusBadge from "$lib/components/StatusBadge.svelte";
+	import type { PageData, ActionData } from "./$types";
+	import { onMount } from "svelte";
+	import { pbBrowser } from "$lib/pb.client";
+	import { invalidateAll } from "$app/navigation";
 
 	let { data, form }: { data: PageData; form: ActionData } = $props();
 
@@ -31,10 +31,10 @@
 	let selectedFile = $state<File | null>(null);
 	let pagesPerSheet = $state<1 | 2 | 4>(1);
 	let copies = $state(1);
-	let sides = $state<'one-sided' | 'two-sided-long-edge' | 'two-sided-short-edge'>(
-		'one-sided'
-	);
-	let color = $state<'color' | 'mono'>('color');
+	let sides = $state<
+		"one-sided" | "two-sided-long-edge" | "two-sided-short-edge"
+	>("one-sided");
+	let color = $state<"color" | "mono">("color");
 
 	// Refs for the upload form — submitted only when the user clicks
 	// "ยืนยันพิมพ์" in the preview panel.
@@ -84,7 +84,11 @@
 	}
 
 	function confirmPrint(): void {
-		if (uploadFormEl && uploadFileEl?.files && uploadFileEl.files.length > 0) {
+		if (
+			uploadFormEl &&
+			uploadFileEl?.files &&
+			uploadFileEl.files.length > 0
+		) {
 			uploadFormEl.requestSubmit();
 		}
 	}
@@ -101,47 +105,55 @@
 		error_message?: string | null;
 	}): string {
 		switch (job.status) {
-			case 'processing':
-				return 'เครื่องกำลังทำงานอยู่';
-			case 'pending': {
+			case "processing":
+				return "เครื่องกำลังทำงานอยู่";
+			case "pending": {
 				const ahead = job.queueAhead ?? 0;
 				const eta = job.etaMinutes ?? ahead * 2;
 				return ahead === 0
-					? 'กำลังจะเริ่มพิมพ์ในอีกสักครู่'
+					? "กำลังจะเริ่มพิมพ์ในอีกสักครู่"
 					: `รออีก ${ahead} คิว (ประมาณ ${eta} นาที)`;
 			}
-			case 'completed':
-				return 'พิมพ์เสร็จเรียบร้อย';
-			case 'failed':
-				return job.error_message ?? 'เกิดข้อผิดพลาด';
+			case "completed":
+				return "พิมพ์เสร็จเรียบร้อย";
+			case "failed":
+				return job.error_message ?? "เกิดข้อผิดพลาด";
 			default:
-				return '';
+				return "";
 		}
 	}
 
-	onMount(async () => {
+	onMount(() => {
 		let unsubscribeJobs: (() => void) | null = null;
 		let unsubscribeQuota: (() => void) | null = null;
 
-		try {
-			const pb = pbBrowser();
+		async function init() {
+			try {
+				const pb = pbBrowser();
 
-			// Subscribe to print_jobs changes for the current user
-			unsubscribeJobs = await pb.collection('print_jobs').subscribe('*', (e) => {
-				if (e.record.user === data.user?.id) {
-					invalidateAll();
+				// Subscribe to print_jobs changes for the current user
+				unsubscribeJobs = await pb
+					.collection("print_jobs")
+					.subscribe("*", (e) => {
+						if (e.record.user === data.user?.id) {
+							invalidateAll();
+						}
+					});
+
+				// Subscribe to Quota changes for the current user
+				if (data.user?.quota?.id) {
+					unsubscribeQuota = await pb
+						.collection("Quota")
+						.subscribe(data.user.quota.id, () => {
+							invalidateAll();
+						});
 				}
-			});
-
-			// Subscribe to Quota changes for the current user
-			if (data.user?.quota?.id) {
-				unsubscribeQuota = await pb.collection('Quota').subscribe(data.user.quota.id, () => {
-					invalidateAll();
-				});
+			} catch (err) {
+				console.error("Failed to subscribe to realtime updates:", err);
 			}
-		} catch (err) {
-			console.error('Failed to subscribe to realtime updates:', err);
 		}
+
+		init();
 
 		return () => {
 			if (unsubscribeJobs) unsubscribeJobs();
@@ -150,39 +162,53 @@
 	});
 </script>
 
-<div class="mx-auto max-w-4xl px-6 py-8">
+<div class="mx-auto max-w-7xl px-6 py-8">
 	<header class="mb-8">
-		<h1 class="text-2xl font-semibold tracking-tight text-fg-app">
+		<h1
+			class="text-2xl font-semibold tracking-tight text-center text-fg-app"
+		>
 			อัปโหลดไฟล์
 		</h1>
-
 	</header>
 
 	{#if form?.message}
 		<div class="mb-4">
-			<AlertBanner variant={form.ok ? 'success' : 'error'} message={form.message} />
+			<AlertBanner
+				variant={form.ok ? "success" : "error"}
+				message={form.message}
+			/>
 		</div>
 	{/if}
 
 	<!-- ── Quota summary ────────────────────────────────────────────── -->
-	<section class="mb-6 rounded-xl border border-app bg-surface p-5 shadow-sm transition-colors">
+	<section
+		class="mb-6 rounded-xl border border-app bg-surface p-5 shadow-sm transition-colors"
+	>
 		<div class="flex items-center justify-between gap-4">
 			<div>
 				<p class="text-xs font-mono text-muted-app">
 					โควต้าคงเหลือ (Quota Remaining)
 				</p>
 				<p class="mt-1 text-2xl font-semibold text-fg-app">
-					<span class={data.quota.remaining <= 0 ? 'text-danger' : 'text-accent'}>
+					<span
+						class={data.quota.remaining <= 0
+							? "text-danger"
+							: "text-accent"}
+					>
 						{data.quota.remaining}
 					</span>
-					<span class="text-base font-normal text-muted-app">/ {data.quota.total} หน้า</span>
+					<span class="text-base font-normal text-muted-app"
+						>/ {data.quota.total} หน้า</span
+					>
 				</p>
 			</div>
 			{#if data.quota.total > 0}
 				<div class="hidden flex-1 sm:block">
 					<QuotaBar used={data.quota.used} total={data.quota.total} />
 					<p class="mt-1 text-right text-xs text-muted-app">
-						ใช้ไปแล้ว {data.quota.used} หน้า ({Math.round((data.quota.used / data.quota.total) * 100)}%)
+						ใช้ไปแล้ว {data.quota.used} หน้า ({Math.round(
+							(data.quota.used / data.quota.total) * 100,
+						)}%)
 					</p>
 				</div>
 			{/if}
@@ -232,8 +258,8 @@
 					for="upload-file-input"
 					class={`flex cursor-pointer flex-col items-center justify-center rounded-md border-2 border-dashed px-6 py-12 text-center transition-colors ${
 						dragOver
-							? 'border-accent bg-accent-soft'
-							: 'border-strong-app bg-elevated hover:border-accent hover:bg-accent-soft/40'
+							? "border-accent bg-accent-soft"
+							: "border-strong-app bg-elevated hover:border-accent hover:bg-accent-soft/40"
 					}`}
 					ondragover={(e) => {
 						e.preventDefault();
@@ -243,7 +269,7 @@
 					ondrop={onDropUpload}
 				>
 					<Upload
-						class={`mb-3 h-7 w-7 ${dragOver ? 'text-accent' : 'text-muted-app'}`}
+						class={`mb-3 h-7 w-7 ${dragOver ? "text-accent" : "text-muted-app"}`}
 					/>
 					<p class="text-base font-medium text-fg-app">
 						คลิกหรือลากไฟล์มาวางที่นี่เพื่อพิมพ์
@@ -257,14 +283,18 @@
 				{@const oneUpActive = pagesPerSheet === 1}
 				{@const twoUpActive = pagesPerSheet === 2}
 				{@const fourUpActive = pagesPerSheet === 4}
-				{@const oneSidedActive = sides === 'one-sided'}
-				{@const longEdgeActive = sides === 'two-sided-long-edge'}
-				{@const shortEdgeActive = sides === 'two-sided-short-edge'}
-				{@const colorActive = color === 'color'}
-				{@const monoActive = color === 'mono'}
-				<div class="rounded-md border border-strong-app bg-surface p-6 transition-colors">
+				{@const oneSidedActive = sides === "one-sided"}
+				{@const longEdgeActive = sides === "two-sided-long-edge"}
+				{@const shortEdgeActive = sides === "two-sided-short-edge"}
+				{@const colorActive = color === "color"}
+				{@const monoActive = color === "mono"}
+				<div
+					class="rounded-md border border-strong-app bg-surface p-6 transition-colors"
+				>
 					<!-- File header -->
-					<div class="flex items-start justify-between gap-4 border-b border-app pb-4">
+					<div
+						class="flex items-start justify-between gap-4 border-b border-app pb-4"
+					>
 						<div class="flex items-start gap-3 min-w-0">
 							<div
 								class="flex h-10 w-10 shrink-0 items-center justify-center rounded-md bg-accent-soft text-accent"
@@ -272,11 +302,14 @@
 								<FileText class="h-5 w-5" />
 							</div>
 							<div class="min-w-0">
-								<p class="truncate text-sm font-medium text-fg-app">
+								<p
+									class="truncate text-sm font-medium text-fg-app"
+								>
 									{selectedFile.name}
 								</p>
 								<p class="mt-0.5 text-xs text-muted-app">
-									{fileSize(selectedFile.size)} · {selectedFile.type || 'ไม่ทราบชนิด'}
+									{fileSize(selectedFile.size)} · {selectedFile.type ||
+										"ไม่ทราบชนิด"}
 								</p>
 							</div>
 						</div>
@@ -291,7 +324,7 @@
 							<X class="h-4 w-4" />
 						</button>
 					</div>
- 
+
 					<!-- Page layout toggle -->
 					<div class="mt-5">
 						<p class="text-sm text-fg-app">จัดหน้า</p>
@@ -302,16 +335,22 @@
 								disabled={submitting}
 								class={`flex flex-col items-center gap-2 rounded-md border p-4 text-center transition-colors disabled:opacity-50 ${
 									oneUpActive
-										? 'border-accent bg-accent-soft ring-2 ring-accent/30'
-										: 'border-strong-app bg-app hover:border-accent/60'
+										? "border-accent bg-accent-soft ring-2 ring-accent/30"
+										: "border-strong-app bg-app hover:border-accent/60"
 								}`}
 							>
-								<div class="flex h-16 w-12 items-center justify-center border border-strong-app bg-surface">
-									<span class="text-[10px] text-muted-app">1</span>
+								<div
+									class="flex h-16 w-12 items-center justify-center border border-strong-app bg-surface"
+								>
+									<span class="text-[10px] text-muted-app"
+										>1</span
+									>
 								</div>
 								<div class="flex items-center gap-1.5">
 									{#if oneUpActive}
-										<Check class="h-3.5 w-3.5 text-accent" />
+										<Check
+											class="h-3.5 w-3.5 text-accent"
+										/>
 									{/if}
 									<span class="text-xs">1 หน้าต่อแผ่น</span>
 								</div>
@@ -322,17 +361,21 @@
 								disabled={submitting}
 								class={`flex flex-col items-center gap-2 rounded-md border p-4 text-center transition-colors disabled:opacity-50 ${
 									twoUpActive
-										? 'border-accent bg-accent-soft ring-2 ring-accent/30'
-										: 'border-strong-app bg-app hover:border-accent/60'
+										? "border-accent bg-accent-soft ring-2 ring-accent/30"
+										: "border-strong-app bg-app hover:border-accent/60"
 								}`}
 							>
-								<div class="grid h-16 w-12 grid-cols-2 gap-0.5 border border-strong-app bg-surface p-0.5">
+								<div
+									class="grid h-16 w-12 grid-cols-2 gap-0.5 border border-strong-app bg-surface p-0.5"
+								>
 									<div class="bg-elevated"></div>
 									<div class="bg-elevated"></div>
 								</div>
 								<div class="flex items-center gap-1.5">
 									{#if twoUpActive}
-										<Check class="h-3.5 w-3.5 text-accent" />
+										<Check
+											class="h-3.5 w-3.5 text-accent"
+										/>
 									{/if}
 									<span class="text-xs">2 หน้าต่อแผ่น</span>
 								</div>
@@ -343,11 +386,13 @@
 								disabled={submitting}
 								class={`flex flex-col items-center gap-2 rounded-md border p-4 text-center transition-colors disabled:opacity-50 ${
 									fourUpActive
-										? 'border-accent bg-accent-soft ring-2 ring-accent/30'
-										: 'border-strong-app bg-app hover:border-accent/60'
+										? "border-accent bg-accent-soft ring-2 ring-accent/30"
+										: "border-strong-app bg-app hover:border-accent/60"
 								}`}
 							>
-								<div class="grid h-16 w-12 grid-cols-2 grid-rows-2 gap-0.5 border border-strong-app bg-surface p-0.5">
+								<div
+									class="grid h-16 w-12 grid-cols-2 grid-rows-2 gap-0.5 border border-strong-app bg-surface p-0.5"
+								>
 									<div class="bg-elevated"></div>
 									<div class="bg-elevated"></div>
 									<div class="bg-elevated"></div>
@@ -355,7 +400,9 @@
 								</div>
 								<div class="flex items-center gap-1.5">
 									{#if fourUpActive}
-										<Check class="h-3.5 w-3.5 text-accent" />
+										<Check
+											class="h-3.5 w-3.5 text-accent"
+										/>
 									{/if}
 									<span class="text-xs">4 หน้าต่อแผ่น</span>
 								</div>
@@ -369,12 +416,12 @@
 						<div class="mt-2 grid grid-cols-3 gap-2">
 							<button
 								type="button"
-								onclick={() => (sides = 'one-sided')}
+								onclick={() => (sides = "one-sided")}
 								disabled={submitting}
 								class={`flex flex-col items-center gap-1.5 rounded-md border p-3 text-center transition-colors disabled:opacity-50 ${
 									oneSidedActive
-										? 'border-accent bg-accent-soft ring-2 ring-accent/30'
-										: 'border-strong-app bg-app hover:border-accent/60'
+										? "border-accent bg-accent-soft ring-2 ring-accent/30"
+										: "border-strong-app bg-app hover:border-accent/60"
 								}`}
 							>
 								<Printer class="h-5 w-5 text-muted-app" />
@@ -382,12 +429,12 @@
 							</button>
 							<button
 								type="button"
-								onclick={() => (sides = 'two-sided-long-edge')}
+								onclick={() => (sides = "two-sided-long-edge")}
 								disabled={submitting}
 								class={`flex flex-col items-center gap-1.5 rounded-md border p-3 text-center transition-colors disabled:opacity-50 ${
 									longEdgeActive
-										? 'border-accent bg-accent-soft ring-2 ring-accent/30'
-										: 'border-strong-app bg-app hover:border-accent/60'
+										? "border-accent bg-accent-soft ring-2 ring-accent/30"
+										: "border-strong-app bg-app hover:border-accent/60"
 								}`}
 							>
 								<BookOpen class="h-5 w-5 text-muted-app" />
@@ -395,12 +442,12 @@
 							</button>
 							<button
 								type="button"
-								onclick={() => (sides = 'two-sided-short-edge')}
+								onclick={() => (sides = "two-sided-short-edge")}
 								disabled={submitting}
 								class={`flex flex-col items-center gap-1.5 rounded-md border p-3 text-center transition-colors disabled:opacity-50 ${
 									shortEdgeActive
-										? 'border-accent bg-accent-soft ring-2 ring-accent/30'
-										: 'border-strong-app bg-app hover:border-accent/60'
+										? "border-accent bg-accent-soft ring-2 ring-accent/30"
+										: "border-strong-app bg-app hover:border-accent/60"
 								}`}
 							>
 								<NotebookPen class="h-5 w-5 text-muted-app" />
@@ -411,34 +458,48 @@
 
 					<!-- Colour mode (colour / mono) -->
 					<div class="mt-5">
-						<p class="text-sm text-fg-app">สี แต่ก็ปริ้นได้แค่ขาวดำเหมือนเดิมนั้นแหละมีให้ดีใจเล่น</p>
+						<p class="text-sm text-fg-app">
+							สี
+							แต่ก็ปริ้นได้แค่ขาวดำเหมือนเดิมนั้นแหละมีให้ดีใจเล่น
+						</p>
 						<div class="mt-2 grid grid-cols-2 gap-2">
 							<button
 								type="button"
-								onclick={() => (color = 'color')}
+								onclick={() => (color = "color")}
 								disabled={submitting}
 								class={`flex flex-col items-center gap-1.5 rounded-md border p-3 text-center transition-colors disabled:opacity-50 ${
 									colorActive
-										? 'border-accent bg-accent-soft ring-2 ring-accent/30'
-										: 'border-strong-app bg-app hover:border-accent/60'
+										? "border-accent bg-accent-soft ring-2 ring-accent/30"
+										: "border-strong-app bg-app hover:border-accent/60"
 								}`}
 							>
 								<div class="flex gap-0.5">
-									<div class="h-3 w-2 rounded-sm bg-danger"></div>
-									<div class="h-3 w-2 rounded-sm bg-warning"></div>
-									<div class="h-3 w-2 rounded-sm bg-accent"></div>
-									<div class="h-3 w-2 rounded-sm bg-success"></div>
+									<div
+										class="h-3 w-2 rounded-sm bg-danger"
+									></div>
+									<div
+										class="h-3 w-2 rounded-sm bg-warning"
+									></div>
+									<div
+										class="h-3 w-2 rounded-sm bg-accent"
+									></div>
+									<div
+										class="h-3 w-2 rounded-sm bg-success"
+									></div>
 								</div>
-								<span class="text-xs">สี แต่ก็ปริ้นได้แค่ขาวดำเหมือนเดิมนั้นแหละมีให้ดีใจเล่น</span>
+								<span class="text-xs">สี </span>
+								<span class="text-xs text-red-700">
+									(แต่ก็ปริ้นได้แค่ขาวดำเหมือนเดิมนั้นแหละมีให้ดีใจเล่น)</span
+								>
 							</button>
 							<button
 								type="button"
-								onclick={() => (color = 'mono')}
+								onclick={() => (color = "mono")}
 								disabled={submitting}
 								class={`flex flex-col items-center gap-1.5 rounded-md border p-3 text-center transition-colors disabled:opacity-50 ${
 									monoActive
-										? 'border-accent bg-accent-soft ring-2 ring-accent/30'
-										: 'border-strong-app bg-app hover:border-accent/60'
+										? "border-accent bg-accent-soft ring-2 ring-accent/30"
+										: "border-strong-app bg-app hover:border-accent/60"
 								}`}
 							>
 								<div class="h-3 w-8 rounded-sm bg-fg-app"></div>
@@ -477,7 +538,7 @@
 							>
 								<Plus class="h-4 w-4" />
 							</button>
-							<span class="text-xs text-muted-app">ชุด (สูงสุด 99)</span>
+							<span class="text-xs text-muted-app">ชุด </span>
 						</div>
 					</div>
 
@@ -499,7 +560,7 @@
 							onclick={confirmPrint}
 							disabled={submitting || copies < 1}
 						>
-							{submitting ? 'กำลังส่ง...' : 'ยืนยันพิมพ์'}
+							{submitting ? "กำลังส่ง..." : "ยืนยันพิมพ์"}
 						</Button>
 					</div>
 				</div>
@@ -508,56 +569,90 @@
 	</section>
 
 	<!-- ── Your Job ──────────────────────────────────────────────────── -->
-	<section class="rounded-xl border border-app bg-surface shadow-sm transition-colors">
+	<section
+		class="rounded-xl border border-app bg-surface shadow-sm transition-colors"
+	>
 		<div class="flex items-center gap-2 border-b border-app px-6 py-4">
 			<Upload class="h-4 w-4 text-accent" />
-			<h2 class="text-base font-semibold text-fg-app">งานพิมพ์ของคุณ (Your Job)</h2>
+			<h2 class="text-base font-semibold text-fg-app">
+				งานพิมพ์ของคุณ (Your Job)
+			</h2>
 		</div>
 		<div class="overflow-x-auto">
 			{#if data.jobs.length === 0}
 				<div class="px-6 py-12 text-center">
 					<Upload class="mx-auto mb-3 h-8 w-8 text-muted-app" />
-					<p class="text-sm text-muted-app">
-						ยังไม่มีงานพิมพ์ 
-					</p>
+					<p class="text-sm text-muted-app">ยังไม่มีงานพิมพ์</p>
 				</div>
 			{:else}
-				<table class="w-full text-sm">
+				<table class="w-full text-sm px-2">
 					<thead
 						class="border-b border-app text-xs tracking-wide text-muted-app"
 					>
 						<tr>
-							<th class="px-6 py-3 text-left font-medium">ชื่อเอกสาร</th>
-							<th class="px-6 py-3 text-left font-medium">เครื่องพิมพ์</th>
-							<th class="px-6 py-3 text-left font-medium">ความยาว</th>
-							<th class="px-6 py-3 text-left font-medium">สถานะ / ลำดับคิว</th>
-							<th class="px-6 py-3 text-left font-medium">การจัดการ</th>
+							<th class="px-6 py-3 text-left font-medium"
+								>ชื่อเอกสาร</th
+							>
+							<th class="px-6 py-3 text-left font-medium"
+								>เครื่องพิมพ์</th
+							>
+							<th class="px-6 py-3 text-left font-medium"
+								>ความยาว</th
+							>
+							<th class="px-6 py-3 text-left font-medium"
+								>สถานะ / ลำดับคิว</th
+							>
+							<th class="px-6 py-3 text-left font-medium"
+								>การจัดการ</th
+							>
 						</tr>
 					</thead>
 					<tbody class="divide-y divide-app">
 						{#each data.jobs as job (job.id)}
 							{@const sub = jobStatusSub(job)}
 							<tr class="hover:bg-elevated transition-colors">
-								<td class="px-6 py-4 font-medium text-fg-app">{job.filename}</td>
-								<td class="px-6 py-4 text-secondary-app">{job.printer_name}</td>
-								<td class="px-6 py-4 text-secondary-app">{job.pages} หน้า</td>
+								<td class="px-6 py-4 font-medium text-fg-app"
+									>{job.filename}</td
+								>
+								<td class="px-6 py-4 text-secondary-app"
+									>{job.printer_name}</td
+								>
+								<td class="px-6 py-4 text-secondary-app"
+									>{job.pages} หน้า</td
+								>
 								<td class="px-6 py-4">
 									<StatusBadge status={job.status} />
 									{#if sub}
-										<p class="mt-1 text-xs text-muted-app">{sub}</p>
+										<p class="mt-1 text-xs text-muted-app">
+											{sub}
+										</p>
 									{/if}
 								</td>
 								<td class="px-6 py-4">
-									{#if job.status === 'pending' || job.status === 'processing'}
-										<form method="POST" action="?/cancel" use:enhance>
-											<input type="hidden" name="jobId" value={job.id} />
-											<Button variant="danger" size="sm" type="submit">
+									{#if job.status === "pending" || job.status === "processing"}
+										<form
+											method="POST"
+											action="?/cancel"
+											use:enhance
+										>
+											<input
+												type="hidden"
+												name="jobId"
+												value={job.id}
+											/>
+											<Button
+												variant="danger"
+												size="sm"
+												type="submit"
+											>
 												<X class="h-3 w-3" />
 												ยกเลิกงานพิมพ์
 											</Button>
 										</form>
 									{:else}
-										<span class="text-xs text-muted-app">-</span>
+										<span class="text-xs text-muted-app"
+											>-</span
+										>
 									{/if}
 								</td>
 							</tr>
