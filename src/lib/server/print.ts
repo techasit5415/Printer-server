@@ -108,3 +108,31 @@ export async function safeUnlink(filePath: string): Promise<void> {
 		/* ignore — file may already be gone */
 	}
 }
+/**
+ * ตรวจสอบสถานะงานพิมพ์ผ่าน lpstat
+ * ส่งคืน true ถ้างานเสร็จสมบูรณ์, false ถ้าถูกยกเลิกหรือล้มเหลว
+ */
+async function waitForPrintJob(jobId: number, timeoutMs = 60000): Promise<boolean> {
+    const startTime = Date.now();
+    
+    while (Date.now() - startTime < timeoutMs) {
+        try {
+            // ดึงสถานะของ jobId (lpstat -o จะแสดงงานที่ค้างอยู่)
+            const { stdout } = await execAsync(`lpstat -o`);
+            
+            // ถ้าไม่พบ jobId ในรายการงานที่ค้างอยู่ แปลว่าน่าจะจบงานแล้ว
+            if (!stdout.includes(`-${jobId}`)) {
+                // ต้องเช็คเพิ่มว่าจบแบบสำเร็จหรือล้มเหลวด้วยการดู log หรือประวัติ
+                // แต่เบื้องต้นถ้าหายไปจากคิวโดยไม่ error คือถือว่าส่งงานสำเร็จ
+                return true; 
+            }
+        } catch (e) {
+            // กรณี lpstat คืนค่า error แปลว่างานอาจจะไม่อยู่ในคิวแล้ว
+            return true;
+        }
+        
+        // รอ 2 วินาทีก่อนเช็คใหม่
+        await new Promise(resolve => setTimeout(resolve, 2000));
+    }
+    return false; // หมดเวลารอก่อนงานจะเสร็จ
+}

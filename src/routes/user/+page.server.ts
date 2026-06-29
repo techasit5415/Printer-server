@@ -13,7 +13,7 @@ import { serverEnv } from '$lib/server/env';
 import type { PageServerLoad } from './$types';
 
 // ─── Tunables ────────────────────────────────────────────────────────────────
-const MAX_FILE_BYTES = 50 * 1024 * 1024; // 25 MiB hard cap (per the new UI copy)
+const MAX_FILE_BYTES = 50 * 1024 * 1024; // 50 MiB hard cap (per the new UI copy)
 
 /**
  * Type guard for PocketBase SDK errors. `ClientResponseError` carries
