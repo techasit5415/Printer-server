@@ -12,8 +12,8 @@ import { createPb } from '$lib/pb';
 import type { UserRole } from '$lib/types';
 import { startPrintJobMonitor } from '$lib/server/monitor';
 
-// Start background print job monitor
-startPrintJobMonitor();
+// Start background print job monitor every 500ms
+startPrintJobMonitor(500);
 
 interface UserTypeRef {
     type?: string;

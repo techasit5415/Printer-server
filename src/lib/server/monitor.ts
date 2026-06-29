@@ -223,37 +223,42 @@ export async function checkPrintJobsStatus(): Promise<void> {
 							await updateJobStatus(pb, job, 'failed', 'Failed at printer', job.pages);
 						}
 					} else {
-						// งานหลุดจากคิวแต่ไม่มีแจ้งเตือนยกเลิก/ล้มเหลว
-						// ใช้ Grace period 12 วินาทีก่อนตัดสินใจเสร็จสมบูรณ์ เพื่อรอสัญญาณส่งกลับจากตัวเครื่องพิมพ์
-						if (!inactiveTimestamps.has(job.id)) {
-							inactiveTimestamps.set(job.id, Date.now());
-							console.log(`[Monitor] Job ${job.id} (CUPS #${job.cups_job_id}) left active queue. Starting 12s grace period for printer sync...`);
+						// เช็คประวัติการพิมพ์จริงทันทีก่อนใช้ Grace Period
+						// หากพิมพ์สำเร็จครบจำนวนหน้าแล้ว ให้ตั้งเสร็จสมบูรณ์ (Completed) ทันทีเพื่อปิดรูรั่วปุ่มกดยกเลิก
+						const { printed, isLogEnabled } = await getPrintedPages(job.cups_job_id);
+						if (isLogEnabled && printed >= job.pages) {
+							inactiveTimestamps.delete(job.id);
+							await updateJobStatus(pb, job, 'completed');
 						} else {
-							const elapsed = Date.now() - inactiveTimestamps.get(job.id)!;
-							if (elapsed > 12000) {
-								inactiveTimestamps.delete(job.id);
+							// หากยังพิมพ์ไม่ครบ หรือปิดการใช้ log ไว้ ให้เข้าสู่ระบบตรวจสอบ Grace period 4 วินาที
+							if (!inactiveTimestamps.has(job.id)) {
+								inactiveTimestamps.set(job.id, Date.now());
+								console.log(`[Monitor] Job ${job.id} (CUPS #${job.cups_job_id}) left active queue. Starting 4s grace period for printer sync...`);
+							} else {
+								const elapsed = Date.now() - inactiveTimestamps.get(job.id)!;
+								if (elapsed > 4000) {
+									inactiveTimestamps.delete(job.id);
 
-								// ครบกำหนด! ตรวจสอบประวัติบันทึก page_log เพื่อความแม่นยำขั้นสูงสุด
-								const { printed, isLogEnabled } = await getPrintedPages(job.cups_job_id);
-								if (isLogEnabled) {
-									if (printed < job.pages) {
-										// พิมพ์ได้บางส่วนแล้วแท่นหยุด/ยกเลิกกลางคัน คืนสิทธิ์หน้าที่เหลือ และปรับเลขหน้าในประวัติเป็นพิมพ์จริง
-										const toRefund = Math.max(0, job.pages - printed);
-										await updateJobStatus(
-											pb,
-											job,
-											'failed',
-											`Canceled at printer / Out of paper (Printed ${printed}/${job.pages} pages)`,
-											toRefund,
-											printed
-										);
+									if (isLogEnabled) {
+										if (printed < job.pages) {
+											// พิมพ์ได้บางส่วนแล้วแท่นหยุด/ยกเลิกกลางคัน คืนสิทธิ์หน้าที่เหลือ และปรับเลขหน้าในประวัติเป็นพิมพ์จริง
+											const toRefund = Math.max(0, job.pages - printed);
+											await updateJobStatus(
+												pb,
+												job,
+												'failed',
+												`Canceled at printer / Out of paper (Printed ${printed}/${job.pages} pages)`,
+												toRefund,
+												printed
+											);
+										} else {
+											// พิมพ์ครบทุกหน้าเรียบร้อย
+											await updateJobStatus(pb, job, 'completed');
+										}
 									} else {
-										// พิมพ์ครบทุกหน้าเรียบร้อย
+										// หากระบบปิดการบันทึก log ไว้ ให้ fallback เป็นสำเร็จสมบูรณ์ตามสเตตัส CUPS
 										await updateJobStatus(pb, job, 'completed');
 									}
-								} else {
-									// หากระบบปิดการบันทึก log ไว้ ให้ fallback เป็นสำเร็จสมบูรณ์ตามสเตตัส CUPS
-									await updateJobStatus(pb, job, 'completed');
 								}
 							}
 						}
