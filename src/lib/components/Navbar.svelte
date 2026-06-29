@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { page } from '$app/state';
+	import { page } from "$app/state";
 	import {
 		Printer,
 		Upload,
@@ -7,15 +7,22 @@
 		LogOut,
 		LogIn,
 		Menu,
-		X
-	} from '@lucide/svelte';
+		X,
+	} from "@lucide/svelte";
 
 	let user = $derived(page.data.user);
-	const isAdmin = $derived(user?.role === 'admin');
+	const isAdmin = $derived(user?.role === "admin");
 
 	const links = $derived([
-		...(user && !isAdmin ? [{ href: '/user', label: 'พิมพ์', icon: Upload }] : []),
-		...(isAdmin ? [{ href: '/admin', label: 'แผงควบคุม', icon: ShieldCheck }] : [])
+		...(user && !isAdmin
+			? [{ href: "/user", label: "พิมพ์", icon: Upload }]
+			: []),
+		...(isAdmin
+			? [{ href: "/user", label: "หน้า print", icon: Printer }]
+			: []),
+		...(isAdmin
+			? [{ href: "/admin", label: "แผงควบคุม", icon: ShieldCheck }]
+			: []),
 	]);
 
 	// Mobile menu state — separate from the desktop nav so the hamburger
@@ -35,13 +42,25 @@
 <header
 	class="sticky top-0 z-30 border-b border-app bg-app/80 backdrop-blur transition-colors duration-300"
 >
-	<div class="mx-auto flex h-14 max-w-[1400px] items-center justify-between gap-4 px-4 sm:gap-6 sm:px-6">
-		<a href="/" class="flex items-center gap-2 font-mono text-sm tracking-tight text-fg-app">
+	<div
+		class="mx-auto flex h-14 max-w-[1400px] items-center justify-between gap-4 px-4 sm:gap-6 sm:px-6"
+	>
+		<a
+			href="/"
+			class="flex items-center gap-2 font-mono text-sm tracking-tight text-fg-app"
+		>
 			<Printer class="h-4 w-4 text-accent" />
-			<span class="font-semibold">print server</span>
+			<div class="flex flex-col">
+				<span class="font-semibold leading-none">print server</span>
+				<span
+					class="mt-0.5 text-[12px] text-muted-app leading-none font-normal"
+				>
+					พบ ปัญหาติดต่อ Bornzi
+				</span>
+			</div>
 			<!-- Brand suffix only shows from md up — keeps the row from
 			     getting crowded on phones where every pixel counts. -->
-		</a>
+		</a>_
 
 		<!-- Desktop nav — hidden below lg where the hamburger takes over. -->
 		<nav class="hidden items-center gap-1 lg:flex">
@@ -53,7 +72,9 @@
 						? 'bg-elevated text-fg-app'
 						: 'text-secondary-app hover:bg-elevated hover:text-fg-app'}"
 				>
-					<link.icon class="h-3.5 w-3.5 {active ? 'text-accent' : ''}" />
+					<link.icon
+						class="h-3.5 w-3.5 {active ? 'text-accent' : ''}"
+					/>
 					{link.label}
 				</a>
 			{/each}
@@ -107,7 +128,7 @@
 			{/if}
 			<button
 				type="button"
-				aria-label={mobileOpen ? 'Close menu' : 'Open menu'}
+				aria-label={mobileOpen ? "Close menu" : "Open menu"}
 				aria-expanded={mobileOpen}
 				onclick={() => (mobileOpen = !mobileOpen)}
 				class="inline-flex h-9 w-9 items-center justify-center rounded-md border border-app bg-surface text-secondary-app transition-colors duration-200 hover:border-strong-app hover:text-fg-app"
@@ -127,7 +148,9 @@
 	     taps anywhere else. -->
 	{#if mobileOpen}
 		<div class="border-t border-app bg-surface lg:hidden">
-			<nav class="mx-auto flex max-w-[1400px] flex-col gap-1 px-4 py-3 sm:px-6">
+			<nav
+				class="mx-auto flex max-w-[1400px] flex-col gap-1 px-4 py-3 sm:px-6"
+			>
 				{#each links as link (link.href)}
 					{@const active = page.url.pathname.startsWith(link.href)}
 					<a
@@ -136,7 +159,9 @@
 							? 'bg-elevated text-fg-app'
 							: 'text-secondary-app hover:bg-elevated hover:text-fg-app'}"
 					>
-						<link.icon class="h-4 w-4 {active ? 'text-accent' : ''}" />
+						<link.icon
+							class="h-4 w-4 {active ? 'text-accent' : ''}"
+						/>
 						{link.label}
 					</a>
 				{:else}
@@ -145,7 +170,9 @@
 					</p>
 				{/each}
 				{#if user}
-					<p class="mt-2 truncate border-t border-app pt-2 font-mono text-[11px] text-muted-app">
+					<p
+						class="mt-2 truncate border-t border-app pt-2 font-mono text-[11px] text-muted-app"
+					>
 						{user.email}
 					</p>
 				{/if}
@@ -158,7 +185,7 @@
 	onpointerdown={(e) => {
 		if (!mobileOpen) return;
 		const target = e.target as HTMLElement | null;
-		if (target?.closest('header')) return;
+		if (target?.closest("header")) return;
 		mobileOpen = false;
 	}}
 />

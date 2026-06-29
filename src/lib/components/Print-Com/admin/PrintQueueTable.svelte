@@ -5,7 +5,10 @@
 	import StatusBadge from "$lib/components/StatusBadge.svelte";
 	import type { PrintJobsRecord } from "$lib/server/pocketbase";
 
-	let { jobs }: { jobs: Array<PrintJobsRecord & { queuePosition: number | null }> } = $props();
+	let {
+		jobs,
+	}: { jobs: Array<PrintJobsRecord & { queuePosition: number | null }> } =
+		$props();
 
 	function jobRef(id: string): string {
 		// Suffix of PB id uppercased — stable per row, ~4 chars.
@@ -56,11 +59,18 @@
 			>
 				<tr>
 					<th class="px-6 py-3 text-left font-medium">รหัสงาน</th>
-					<th class="px-6 py-3 text-left font-medium">ชื่อไฟล์เอกสาร</th>
-					<th class="px-6 py-3 text-left font-medium">ผู้สั่งพิมพ์</th>
-					<th class="px-6 py-3 text-left font-medium">เครื่องพิมพ์</th>
+					<th class="px-6 py-3 text-left font-medium"
+						>ชื่อไฟล์เอกสาร</th
+					>
+					<th class="px-6 py-3 text-left font-medium">ผู้สั่งพิมพ์</th
+					>
+					<th class="px-6 py-3 text-left font-medium">หน้า</th>
+					<th class="px-6 py-3 text-left font-medium">Copy</th>
+					<th class="px-6 py-3 text-left font-medium">เครื่องพิมพ์</th
+					>
 					<th class="px-6 py-3 text-left font-medium">สถานะระบบ</th>
-					<th class="px-6 py-3 text-left font-medium">การจัดการคิว</th>
+					<th class="px-6 py-3 text-left font-medium">การจัดการคิว</th
+					>
 				</tr>
 			</thead>
 			<tbody class="divide-y divide-app">
@@ -78,6 +88,12 @@
 						<td class="px-6 py-4 text-secondary-app">
 							{job.printer_name}
 						</td>
+						<td class="px-6 py-4 text-secondary-app">
+							{job.copies}
+						</td>
+						<td class="px-6 py-4 text-secondary-app">
+							{job.pages}
+						</td>
 						<td class="px-6 py-4">
 							<StatusBadge status={job.status} />
 							{#if job.status === "pending" || job.status === "processing" || job.status === "failed" || job.status === "completed"}
@@ -91,16 +107,40 @@
 						</td>
 						<td class="px-6 py-4">
 							{#if job.status === "processing"}
-								<form method="POST" action="?/suspend" use:enhance>
-									<input type="hidden" name="jobId" value={job.id} />
-									<Button variant="danger" size="sm" type="submit">
+								<form
+									method="POST"
+									action="?/suspend"
+									use:enhance
+								>
+									<input
+										type="hidden"
+										name="jobId"
+										value={job.id}
+									/>
+									<Button
+										variant="danger"
+										size="sm"
+										type="submit"
+									>
 										ระงับงาน
 									</Button>
 								</form>
 							{:else if job.status === "pending"}
-								<form method="POST" action="?/remove" use:enhance>
-									<input type="hidden" name="jobId" value={job.id} />
-									<Button variant="danger" size="sm" type="submit">
+								<form
+									method="POST"
+									action="?/remove"
+									use:enhance
+								>
+									<input
+										type="hidden"
+										name="jobId"
+										value={job.id}
+									/>
+									<Button
+										variant="danger"
+										size="sm"
+										type="submit"
+									>
 										ลบคิว
 									</Button>
 								</form>

@@ -11,10 +11,9 @@
 		CircleDashed,
 		Hourglass
 	} from '@lucide/svelte';
-	import type { LeaseStatus } from '$lib/types';
 
-	/** Accepts either the lease status or the wider print_jobs status set. */
-	type Status = LeaseStatus | 'processing' | 'failed';
+	/** Covers the four print_jobs statuses */
+	type Status = 'pending' | 'processing' | 'completed' | 'failed';
 
 	interface Props {
 		status: Status;

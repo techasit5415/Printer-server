@@ -8,7 +8,7 @@
 // quota state pull it through `$lib/server/quota.ts` helpers.
 
 import type { Handle } from '@sveltejs/kit';
-import { createPb } from '$lib/pb';
+import { createPb } from '$lib/pb/server';
 import type { UserRole } from '$lib/types';
 import { startPrintJobMonitor } from '$lib/server/monitor';
 

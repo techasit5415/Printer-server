@@ -1,10 +1,10 @@
 <script lang="ts">
 	import { onMount } from "svelte";
-	import { pbBrowser } from "$lib/pb.client";
+	import { pbBrowser } from "$lib/pb/client";
 	import { invalidateAll } from "$app/navigation";
 	import AlertBanner from "$lib/components/AlertBanner.svelte";
-	import PrintQueueTable from "$lib/components/Print-Com/PrintQueueTable.svelte";
-	import UserQuotasTable from "$lib/components/Print-Com/UserQuotasTable.svelte";
+	import PrintQueueTable from "$lib/components/Print-Com/admin/PrintQueueTable.svelte";
+	import UserQuotasTable from "$lib/components/Print-Com/admin/UserQuotasTable.svelte";
 	import type { PageData, ActionData } from "./$types";
 
 	let { data, form }: { data: PageData; form: ActionData } = $props();
@@ -47,7 +47,7 @@
 	});
 </script>
 
-<div class="mx-auto max-w-6xl px-6 py-8">
+<div class="mx-auto max-w-fit px-6 py-8">
 	<!-- <header class="mb-8">
 		<h1 class="text-2xl font-semibold tracking-tight text-fg-app">
 			Control Panel

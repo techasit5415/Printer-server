@@ -6,7 +6,7 @@ import PocketBase from 'pocketbase';
 import type { RecordModel } from 'pocketbase';
 import { env } from '$env/dynamic/private';
 import type { RequestEvent } from '@sveltejs/kit';
-import { AUTH_COOKIE } from './constants';
+import { AUTH_COOKIE } from '../constants';
 
 const PB_URL = env.POCKETBASE_URL;
 if (!PB_URL) {

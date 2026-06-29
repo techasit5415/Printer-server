@@ -1,11 +1,11 @@
 <script lang="ts">
 	import { onMount } from "svelte";
-	import { pbBrowser } from "$lib/pb.client";
+	import { pbBrowser } from "$lib/pb/client";
 	import { invalidateAll } from "$app/navigation";
 	import AlertBanner from "$lib/components/AlertBanner.svelte";
 	import QuotaBar from "$lib/components/QuotaBar.svelte";
-	import StagedPrintForm from "$lib/components/Print-Com/StagedPrintForm.svelte";
-	import UserJobsTable from "$lib/components/Print-Com/UserJobsTable.svelte";
+	import StagedPrintForm from "$lib/components/Print-Com/user/StagedPrintForm.svelte";
+	import UserJobsTable from "$lib/components/Print-Com/user/UserJobsTable.svelte";
 	import type { PageData, ActionData } from "./$types";
 
 	let { data, form }: { data: PageData; form: ActionData } = $props();

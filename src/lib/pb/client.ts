@@ -8,7 +8,7 @@
 // The auth state is mirrored from the cookie that hooks.server.ts
 // writes on every request.
 
-import { AUTH_COOKIE } from './constants';
+import { AUTH_COOKIE } from '../constants';
 
 const PB_URL = import.meta.env.VITE_POCKETBASE_URL;
 if (!PB_URL) {

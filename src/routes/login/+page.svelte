@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { LogIn, Lock, User } from "@lucide/svelte";
-	import { pbBrowser } from "$lib/pb.client";
+	import { pbBrowser } from "$lib/pb/client";
 	import AlertBanner from "$lib/components/AlertBanner.svelte";
 	import Button from "$lib/components/Button.svelte";
 	import type { ActionData } from "./$types";
