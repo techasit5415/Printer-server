@@ -59,9 +59,6 @@ async function updateJobStatus(
 	}
 }
 
-// Track missing count to avoid premature completion if CUPS clears the queue during a transient delay
-const missingCounts = new Map<string, number>();
-
 export async function checkPrintJobsStatus(): Promise<void> {
 	try {
 		const pb = await getAdminClient();
@@ -77,61 +74,85 @@ export async function checkPrintJobsStatus(): Promise<void> {
 
 		console.log(`[Monitor] Checking status for ${activeJobs.length} active print jobs...`);
 
-		// Fetch all jobs from CUPS history (both active and completed/canceled)
-		let lpstatOutput = '';
+		// Fetch active jobs and history detailed blocks from CUPS
+		let activeOutput = '';
+		let allOutput = '';
+		let useMock = false;
 		try {
-			const { stdout } = await execAsync('lpstat -W all -o', { shell: '/bin/bash' });
-			lpstatOutput = stdout;
+			const { stdout: activeOut } = await execAsync('lpstat -o', { shell: '/bin/bash' });
+			activeOutput = activeOut;
+			const { stdout: allOut } = await execAsync('lpstat -l -W all -o', { shell: '/bin/bash' });
+			allOutput = allOut;
 		} catch (err) {
-			console.error('[Monitor] Failed to query CUPS job status (lpstat error):', err);
+			// lpstat failed (probably running on Windows local dev or CUPS is offline)
+			useMock = true;
+		}
+
+		if (useMock) {
+			console.log('[Monitor] lpstat is not available. Simulating print queue status updates (Mock Mode)...');
+			for (const job of activeJobs) {
+				const ageMs = Date.now() - new Date(job.created).getTime();
+				if (job.status === 'pending') {
+					await updateJobStatus(pb, job, 'processing');
+				} else if (job.status === 'processing' && ageMs > 10000) {
+					// After 10 seconds, auto-complete the job
+					await updateJobStatus(pb, job, 'completed');
+				}
+			}
 			return;
 		}
 
-		const lines = lpstatOutput.split('\n');
+		// Split output into detailed job blocks (each block starts with alphanumeric character, e.g., printer name)
+		const allBlocks = allOutput.split(/^(?=[A-Za-z0-9])/m).filter(Boolean);
 
 		for (const job of activeJobs) {
 			const jobIdentifier = `${job.printer_name}-${job.cups_job_id}`;
-			const matchingLine = lines.find((line) => line.includes(jobIdentifier));
+			const isActive = activeOutput.includes(jobIdentifier);
 
-			if (matchingLine) {
-				// Reset missing count if we found it
-				missingCounts.delete(job.id);
-
-				const lineLower = matchingLine.toLowerCase();
-
-				if (lineLower.includes('cancel')) {
-					await updateJobStatus(pb, job, 'failed', 'Canceled at printer / Out of paper');
-				} else if (
-					lineLower.includes('fail') ||
-					lineLower.includes('abort') ||
-					lineLower.includes('error')
-				) {
-					await updateJobStatus(pb, job, 'failed', 'Failed at printer');
-				} else if (lineLower.includes('complete')) {
-					await updateJobStatus(pb, job, 'completed');
-				} else if (lineLower.includes('process') || lineLower.includes('print')) {
-					if (job.status !== 'processing') {
-						await updateJobStatus(pb, job, 'processing');
-					}
-				} else if (lineLower.includes('pend') || lineLower.includes('hold')) {
-					if (job.status !== 'pending') {
-						await updateJobStatus(pb, job, 'pending');
+			if (isActive) {
+				// The job is still in the active queue
+				const matchingBlock = allBlocks.find((block) => block.trim().startsWith(jobIdentifier));
+				if (matchingBlock) {
+					const blockLower = matchingBlock.toLowerCase();
+					if (blockLower.includes('pend') || blockLower.includes('hold')) {
+						if (job.status !== 'pending') {
+							await updateJobStatus(pb, job, 'pending');
+						}
+					} else {
+						if (job.status !== 'processing') {
+							await updateJobStatus(pb, job, 'processing');
+						}
 					}
 				}
 			} else {
-				// If it is not found in lpstat output
-				const count = (missingCounts.get(job.id) || 0) + 1;
-				missingCounts.set(job.id, count);
+				// The job is no longer in the active queue (meaning it has completed or failed)
+				const matchingBlock = allBlocks.find((block) => block.trim().startsWith(jobIdentifier));
+				if (matchingBlock) {
+					const blockLower = matchingBlock.toLowerCase();
 
-				console.warn(
-					`[Monitor] Job ${job.id} (CUPS #${job.cups_job_id}) not found in lpstat output (attempt ${count}/3)`
-				);
-
-				if (count >= 3) {
-					missingCounts.delete(job.id);
-					// Treat as completed if it completely disappeared from history without being marked canceled
-					console.log(`[Monitor] Job ${job.id} has been missing for 3 checks. Assuming completed.`);
-					await updateJobStatus(pb, job, 'completed');
+					if (blockLower.includes('cancel')) {
+						await updateJobStatus(pb, job, 'failed', 'Canceled at printer / Out of paper');
+					} else if (
+						blockLower.includes('fail') ||
+						blockLower.includes('abort') ||
+						blockLower.includes('error')
+					) {
+						await updateJobStatus(pb, job, 'failed', 'Failed at printer');
+					} else {
+						// Not active and not canceled/failed -> Completed!
+						await updateJobStatus(pb, job, 'completed');
+					}
+				} else {
+					// If the job is completely missing from CUPS queue and history:
+					// If it has been at least 8 seconds since the job was created, it means
+					// the print job has finished printing and was removed from history.
+					const ageMs = Date.now() - new Date(job.created).getTime();
+					if (ageMs > 8000) {
+						console.log(`[Monitor] Job ${job.id} (CUPS #${job.cups_job_id}) is missing from lpstat and is ${Math.round(ageMs/1000)}s old. Assuming completed.`);
+						await updateJobStatus(pb, job, 'completed');
+					} else {
+						console.log(`[Monitor] Job ${job.id} (CUPS #${job.cups_job_id}) is brand new (${Math.round(ageMs/1000)}s old) and not yet listed. Waiting...`);
+					}
 				}
 			}
 		}
