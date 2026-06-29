@@ -188,7 +188,9 @@ export const actions: Actions = {
 
 			// Calculate actual page count
 			const actualPages = await getPageCountOfFile(tempPath, ext);
-			const totalPages = actualPages * copies;
+			// Account for N-up (pages per sheet) layout
+			const printedPagesPerCopy = Math.ceil(actualPages / pagesPerSheet);
+			const totalPages = printedPagesPerCopy * copies;
 
 			// Reserve the quota based on the actual pages
 			const reservation = await deductQuota(pb, locals.user.id, totalPages);

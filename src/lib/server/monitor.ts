@@ -35,29 +35,81 @@ async function updateJobStatus(
 	pb: PocketBase,
 	job: PrintJobsRecord,
 	newStatus: 'completed' | 'failed' | 'processing' | 'pending',
-	errorMessage?: string
+	errorMessage?: string,
+	refundPages?: number,
+	actualPages?: number
 ): Promise<void> {
 	console.log(`[Monitor] Updating job ${job.id} (CUPS #${job.cups_job_id}) from "${job.status}" to "${newStatus}"`);
 
 	try {
-		await pb.collection('print_jobs').update(job.id, {
+		const updatePayload: any = {
 			status: newStatus,
 			error_message: errorMessage || null
-		});
+		};
+		if (actualPages !== undefined) {
+			updatePayload.pages = actualPages;
+		}
+		await pb.collection('print_jobs').update(job.id, updatePayload);
 	} catch (dbErr) {
 		console.error(`[Monitor] Failed to update job status for ${job.id} in DB:`, dbErr);
 		return;
 	}
 
-	if (newStatus === 'failed') {
+	const pagesToRefund = refundPages !== undefined ? refundPages : (newStatus === 'failed' ? job.pages : 0);
+
+	if (pagesToRefund > 0) {
 		try {
-			console.log(`[Monitor] Refunding ${job.pages} pages to user ${job.user} for failed job ${job.id}`);
-			await refundQuota(pb, job.user, job.pages);
+			console.log(`[Monitor] Refunding ${pagesToRefund} pages to user ${job.user} for job ${job.id}`);
+			await refundQuota(pb, job.user, pagesToRefund);
 		} catch (refundErr) {
 			console.error(`[Monitor] Failed to refund user ${job.user} for job ${job.id}:`, refundErr);
 		}
 	}
 }
+
+/**
+ * ดึงจำนวนหน้าจริงที่พิมพ์เสร็จออกจากเครื่องปริ้นจริงจาก /var/log/cups/page_log
+ */
+async function getPrintedPages(cupsJobId: number): Promise<{ printed: number; isLogEnabled: boolean }> {
+	try {
+		// ค้นหาบรรทัดของ Job ID นี้ในไฟล์ page_log
+		const cmd = `grep -E '^[^ ]+\\s+[^ ]+\\s+${cupsJobId}\\b' /var/log/cups/page_log`;
+		const { stdout } = await execAsync(cmd, { shell: '/bin/bash' });
+
+		let printed = 0;
+		const lines = stdout.split('\n').filter(Boolean);
+		for (const line of lines) {
+			const parts = line.trim().split(/\s+/);
+			if (parts.length >= 6) {
+				// คอลัมน์ที่ 6 (ดัชนี 5) คือจำนวนก๊อปปี้/หน้าจริงที่พิมพ์ออกมา
+				const copies = parseInt(parts[5], 10);
+				if (Number.isInteger(copies) && copies > 0) {
+					printed += copies;
+				}
+			}
+		}
+
+		return { printed, isLogEnabled: true };
+	} catch (err: any) {
+		// grep จะคืนค่า exit code 1 หากไม่พบประวัติในไฟล์ (แปลว่าไฟล์เปิดได้ แต่ยังไม่มีหน้าใดพิมพ์สำเร็จเลย)
+		if (err && err.code === 1) {
+			try {
+				// เช็คความเคลื่อนไหวล่าสุดของไฟล์เพื่อตรวจสอบว่าระบบเปิดบันทึก page_log อยู่จริงไหม
+				const { stdout: tailOut } = await execAsync('tail -n 10 /var/log/cups/page_log', { shell: '/bin/bash' });
+				const isLogEnabled = tailOut.trim().length > 0;
+				return { printed: 0, isLogEnabled };
+			} catch {
+				return { printed: 0, isLogEnabled: false };
+			}
+		}
+
+		// เปิดไฟล์ไม่ได้ หรือไม่มีสิทธิ์อ่าน
+		return { printed: 0, isLogEnabled: false };
+	}
+}
+
+// Map to track when jobs left the active queue to enforce a sync grace period
+const inactiveTimestamps = new Map<string, number>();
 
 export async function checkPrintJobsStatus(): Promise<void> {
 	try {
@@ -111,6 +163,9 @@ export async function checkPrintJobsStatus(): Promise<void> {
 
 			if (isActive) {
 				// The job is still in the active queue
+				// If it was temporarily in inactive state, clear it
+				inactiveTimestamps.delete(job.id);
+
 				const matchingBlock = allBlocks.find((block) => block.trim().startsWith(jobIdentifier));
 				if (matchingBlock) {
 					const blockLower = matchingBlock.toLowerCase();
@@ -131,16 +186,77 @@ export async function checkPrintJobsStatus(): Promise<void> {
 					const blockLower = matchingBlock.toLowerCase();
 
 					if (blockLower.includes('cancel')) {
-						await updateJobStatus(pb, job, 'failed', 'Canceled at printer / Out of paper');
+						inactiveTimestamps.delete(job.id);
+						// เครื่องปริ้นยกเลิกงาน ตรวจสอบหน้าจริงที่พิมพ์ออกมาเพื่อหักเฉพาะส่วนนั้นและคืนที่เหลือ
+						const { printed, isLogEnabled } = await getPrintedPages(job.cups_job_id);
+						if (isLogEnabled) {
+							const toRefund = Math.max(0, job.pages - printed);
+							await updateJobStatus(
+								pb,
+								job,
+								'failed',
+								`Canceled at printer / Out of paper (Printed ${printed}/${job.pages} pages)`,
+								toRefund,
+								printed
+							);
+						} else {
+							await updateJobStatus(pb, job, 'failed', 'Canceled at printer / Out of paper', job.pages);
+						}
 					} else if (
 						blockLower.includes('fail') ||
 						blockLower.includes('abort') ||
 						blockLower.includes('error')
 					) {
-						await updateJobStatus(pb, job, 'failed', 'Failed at printer');
+						inactiveTimestamps.delete(job.id);
+						const { printed, isLogEnabled } = await getPrintedPages(job.cups_job_id);
+						if (isLogEnabled) {
+							const toRefund = Math.max(0, job.pages - printed);
+							await updateJobStatus(
+								pb,
+								job,
+								'failed',
+								`Failed at printer (Printed ${printed}/${job.pages} pages)`,
+								toRefund,
+								printed
+							);
+						} else {
+							await updateJobStatus(pb, job, 'failed', 'Failed at printer', job.pages);
+						}
 					} else {
-						// Not active and not canceled/failed -> Completed!
-						await updateJobStatus(pb, job, 'completed');
+						// งานหลุดจากคิวแต่ไม่มีแจ้งเตือนยกเลิก/ล้มเหลว
+						// ใช้ Grace period 12 วินาทีก่อนตัดสินใจเสร็จสมบูรณ์ เพื่อรอสัญญาณส่งกลับจากตัวเครื่องพิมพ์
+						if (!inactiveTimestamps.has(job.id)) {
+							inactiveTimestamps.set(job.id, Date.now());
+							console.log(`[Monitor] Job ${job.id} (CUPS #${job.cups_job_id}) left active queue. Starting 12s grace period for printer sync...`);
+						} else {
+							const elapsed = Date.now() - inactiveTimestamps.get(job.id)!;
+							if (elapsed > 12000) {
+								inactiveTimestamps.delete(job.id);
+
+								// ครบกำหนด! ตรวจสอบประวัติบันทึก page_log เพื่อความแม่นยำขั้นสูงสุด
+								const { printed, isLogEnabled } = await getPrintedPages(job.cups_job_id);
+								if (isLogEnabled) {
+									if (printed < job.pages) {
+										// พิมพ์ได้บางส่วนแล้วแท่นหยุด/ยกเลิกกลางคัน คืนสิทธิ์หน้าที่เหลือ และปรับเลขหน้าในประวัติเป็นพิมพ์จริง
+										const toRefund = Math.max(0, job.pages - printed);
+										await updateJobStatus(
+											pb,
+											job,
+											'failed',
+											`Canceled at printer / Out of paper (Printed ${printed}/${job.pages} pages)`,
+											toRefund,
+											printed
+										);
+									} else {
+										// พิมพ์ครบทุกหน้าเรียบร้อย
+										await updateJobStatus(pb, job, 'completed');
+									}
+								} else {
+									// หากระบบปิดการบันทึก log ไว้ ให้ fallback เป็นสำเร็จสมบูรณ์ตามสเตตัส CUPS
+									await updateJobStatus(pb, job, 'completed');
+								}
+							}
+						}
 					}
 				} else {
 					// If the job is completely missing from CUPS queue and history:
@@ -148,6 +264,7 @@ export async function checkPrintJobsStatus(): Promise<void> {
 					// the print job has finished printing and was removed from history.
 					const ageMs = Date.now() - new Date(job.created).getTime();
 					if (ageMs > 8000) {
+						inactiveTimestamps.delete(job.id);
 						console.log(`[Monitor] Job ${job.id} (CUPS #${job.cups_job_id}) is missing from lpstat and is ${Math.round(ageMs/1000)}s old. Assuming completed.`);
 						await updateJobStatus(pb, job, 'completed');
 					} else {

@@ -29,7 +29,7 @@
 	// the user picked or dropped; the actual `?/print` submit only
 	// fires after they confirm the preview panel.
 	let selectedFile = $state<File | null>(null);
-	let pagesPerSheet = $state<1 | 4>(1);
+	let pagesPerSheet = $state<1 | 2 | 4>(1);
 	let copies = $state(1);
 	let sides = $state<'one-sided' | 'two-sided-long-edge' | 'two-sided-short-edge'>(
 		'one-sided'
@@ -255,6 +255,7 @@
 			{:else}
 				<!-- Step 2: confirmation panel. -->
 				{@const oneUpActive = pagesPerSheet === 1}
+				{@const twoUpActive = pagesPerSheet === 2}
 				{@const fourUpActive = pagesPerSheet === 4}
 				{@const oneSidedActive = sides === 'one-sided'}
 				{@const longEdgeActive = sides === 'two-sided-long-edge'}
@@ -290,11 +291,11 @@
 							<X class="h-4 w-4" />
 						</button>
 					</div>
-
+ 
 					<!-- Page layout toggle -->
 					<div class="mt-5">
 						<p class="text-sm text-fg-app">จัดหน้า</p>
-						<div class="mt-2 grid grid-cols-2 gap-3">
+						<div class="mt-2 grid grid-cols-3 gap-3">
 							<button
 								type="button"
 								onclick={() => (pagesPerSheet = 1)}
@@ -313,6 +314,27 @@
 										<Check class="h-3.5 w-3.5 text-accent" />
 									{/if}
 									<span class="text-xs">1 หน้าต่อแผ่น</span>
+								</div>
+							</button>
+							<button
+								type="button"
+								onclick={() => (pagesPerSheet = 2)}
+								disabled={submitting}
+								class={`flex flex-col items-center gap-2 rounded-md border p-4 text-center transition-colors disabled:opacity-50 ${
+									twoUpActive
+										? 'border-accent bg-accent-soft ring-2 ring-accent/30'
+										: 'border-strong-app bg-app hover:border-accent/60'
+								}`}
+							>
+								<div class="grid h-16 w-12 grid-cols-2 gap-0.5 border border-strong-app bg-surface p-0.5">
+									<div class="bg-elevated"></div>
+									<div class="bg-elevated"></div>
+								</div>
+								<div class="flex items-center gap-1.5">
+									{#if twoUpActive}
+										<Check class="h-3.5 w-3.5 text-accent" />
+									{/if}
+									<span class="text-xs">2 หน้าต่อแผ่น</span>
 								</div>
 							</button>
 							<button
