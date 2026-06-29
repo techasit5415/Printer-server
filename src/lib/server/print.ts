@@ -74,7 +74,9 @@ export async function submitPrintJob(opts: SubmitOptions): Promise<SubmitResult>
 	];
 	if (media) args.push('-o', `media=${media}`);
 	const nup = opts.pagesPerSheet ?? 1;
-	if (nup > 1) args.push('-o', `number-up=${nup}`);
+	if (nup > 1) {
+		args.push('-o', `number-up=${nup}`, '-o', 'number-up-layout=lrtb');
+	}
 	// Colour mode: defaults to colour. Mono prints black-and-white on
 	// a colour printer, saving toner/ink.
 	if (opts.color === 'mono') args.push('-o', 'print-color-mode=monochrome');

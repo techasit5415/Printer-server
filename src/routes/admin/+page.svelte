@@ -81,6 +81,7 @@
 				u.email.toLowerCase().includes(q) ||
 				(u.role ?? "").toLowerCase().includes(q) ||
 				u.id.toLowerCase().includes(q) ||
+				(u.username ?? "").toLowerCase().includes(q) ||
 				(u.expand?.user_type?.type ?? "").toLowerCase().includes(q)
 			);
 		});
@@ -100,16 +101,17 @@
 	function jobStatusLabel(job: {
 		status: string;
 		queuePosition: number | null;
+		error_message?: string | null;
 	}): string {
 		switch (job.status) {
 			case "processing":
-				return "กำลังพิมพ์...";
+				return "เครื่องกำลังทำงานอยู่";
 			case "pending":
 				return `ต่อคิว (ลำดับ ${job.queuePosition ?? "?"})`;
 			case "completed":
-				return "เสร็จสิ้น";
+				return "พิมพ์เสร็จเรียบร้อย";
 			case "failed":
-				return "ล้มเหลว";
+				return job.error_message ?? "เกิดข้อผิดพลาด";
 			default:
 				return job.status;
 		}
@@ -164,11 +166,11 @@
 </script>
 
 <div class="mx-auto max-w-6xl px-6 py-8">
-	<header class="mb-8">
+	<!-- <header class="mb-8">
 		<h1 class="text-2xl font-semibold tracking-tight text-fg-app">
 			Control Panel
 		</h1>
-	</header>
+	</header> -->
 
 	{#if form?.message}
 		<div class="mb-4">
@@ -228,10 +230,13 @@
 							>
 							<td class="px-6 py-4">
 								<StatusBadge status={job.status} />
-								{#if job.status === "pending" || job.status === "processing"}
-									<p class="mt-1 text-xs text-muted-app">
-										{jobStatusLabel(job)}
-									</p>
+								{#if job.status === "pending" || job.status === "processing" || job.status === "failed" || job.status === "completed"}
+									{@const label = jobStatusLabel(job)}
+									{#if label}
+										<p class="mt-1 text-xs text-muted-app">
+											{label}
+										</p>
+									{/if}
 								{/if}
 							</td>
 							<td class="px-6 py-4">
@@ -297,7 +302,7 @@
 		<div class="flex items-center gap-2 border-b border-app px-6 py-4">
 			<Users class="h-4 w-4 text-accent" />
 			<h2 class="text-base font-semibold text-fg-app">
-				การจัดการสิทธิ์และโควต้าพิมพ์กงาน (User Quotas)
+				โควต้าพิมพ์ (User Quotas)
 			</h2>
 		</div>
 
@@ -455,8 +460,13 @@
 								</div>
 								<div
 									class="mt-0.5 font-mono text-xs text-muted-app"
+									title="PocketBase ID: {u.id}"
 								>
-									ID: {u.id.slice(-4)}
+									{#if u.username}
+										ID: {u.username} <span class="text-[10px] opacity-60">({u.id})</span>
+									{:else}
+										ID: {u.id}
+									{/if}
 								</div>
 							</td>
 							<td class="px-6 py-4 text-secondary-app">

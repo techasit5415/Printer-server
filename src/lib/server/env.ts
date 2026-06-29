@@ -14,6 +14,8 @@ interface ServerEnv {
 	printerName: string;
 	tempDir: string;
 	defaultQuotaPages: number;
+	gracePeriodMs: number;
+	missingJobAgeMs: number;
 }
 
 function readEnv(): ServerEnv {
@@ -21,6 +23,8 @@ function readEnv(): ServerEnv {
 	const printerName = env.PRIVATE_PRINTER_NAME;
 	const tempDir = env.PRIVATE_TEMP_DIR;
 	const defaultQuotaPages = env.PRIVATE_DEFAULT_QUOTA_PAGES;
+	const gracePeriodRaw = env.PRIVATE_GRACE_PERIOD_MS;
+	const missingJobAgeRaw = env.PRIVATE_MISSING_JOB_AGE_MS;
 
 	if (!pocketbaseUrl) {
 		throw new Error('Missing PRIVATE_POCKETBASE_URL environment variable.');
@@ -47,7 +51,15 @@ function readEnv(): ServerEnv {
 		defaultQuotaPages:
 			defaultQuotaPages && Number.isFinite(Number(defaultQuotaPages))
 				? Math.max(0, Math.floor(Number(defaultQuotaPages)))
-				: 0
+				: 0,
+		gracePeriodMs:
+			gracePeriodRaw && Number.isFinite(Number(gracePeriodRaw))
+				? Math.max(0, Math.floor(Number(gracePeriodRaw)))
+				: 6000,
+		missingJobAgeMs:
+			missingJobAgeRaw && Number.isFinite(Number(missingJobAgeRaw))
+				? Math.max(0, Math.floor(Number(missingJobAgeRaw)))
+				: 8000
 	};
 }
 

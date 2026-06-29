@@ -9,7 +9,7 @@ import { serverEnv } from './env';
 const execAsync = promisify(exec);
 
 // ปรับค่าหน่วงเวลาสำหรับการทำงานของระบบ Monitor (มิลลิวินาที)
-const GRACE_PERIOD_MS = 6000;       // ระยะเวลาเพื่อรอเครื่องพิมพ์ซิงค์ข้อมูลลง log (ปรับเป็น 6 วินาที เพื่อให้เครื่องพิมพ์บันทึก log ทัน)
+const GRACE_PERIOD_MS = 8000;       // ระยะเวลาเพื่อรอเครื่องพิมพ์ซิงค์ข้อมูลลง log (ปรับเป็น 6 วินาที เพื่อให้เครื่องพิมพ์บันทึก log ทัน)
 const MISSING_JOB_AGE_MS = 8000;    // อายุงานขั้นต่ำที่จะถือว่างานพิมพ์เสร็จสิ้นหากคิวหายไป (ปรับเป็น 8 วินาที เพื่อป้องกันเคลียร์งานเร็วเกินไป)
 
 let pbAdmin: PocketBase | null = null;
@@ -287,10 +287,10 @@ export async function checkPrintJobsStatus(): Promise<void> {
 					const ageMs = Date.now() - new Date(job.created).getTime();
 					if (ageMs > MISSING_JOB_AGE_MS) {
 						inactiveTimestamps.delete(job.id);
-						console.log(`[Monitor] Job ${job.id} (CUPS #${job.cups_job_id}) is missing from lpstat and is ${Math.round(ageMs/1000)}s old. Assuming completed.`);
+						console.log(`[Monitor] Job ${job.id} (CUPS #${job.cups_job_id}) is missing from lpstat and is ${Math.round(ageMs / 1000)}s old. Assuming completed.`);
 						await updateJobStatus(pb, job, 'completed');
 					} else {
-						console.log(`[Monitor] Job ${job.id} (CUPS #${job.cups_job_id}) is brand new (${Math.round(ageMs/1000)}s old) and not yet listed. Waiting...`);
+						console.log(`[Monitor] Job ${job.id} (CUPS #${job.cups_job_id}) is brand new (${Math.round(ageMs / 1000)}s old) and not yet listed. Waiting...`);
 					}
 				}
 			}
