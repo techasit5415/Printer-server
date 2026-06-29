@@ -83,7 +83,7 @@ export async function submitPrintJob(opts: SubmitOptions): Promise<SubmitResult>
 	const cmd = `lp ${args.map((a) => `'${a.replace(/'/g, `'\\''`)}'`).join(' ')}`;
 
 	const { stdout } = await execAsync(cmd, {
-		maxBuffer: 1024 * 1024,
+		maxBuffer:50 * 1024 * 1024,
 		timeout: 60_000,
 		shell: '/bin/bash'
 	});
