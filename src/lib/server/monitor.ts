@@ -8,6 +8,10 @@ import { serverEnv } from './env';
 
 const execAsync = promisify(exec);
 
+// ปรับค่าหน่วงเวลาสำหรับการทำงานของระบบ Monitor (มิลลิวินาที)
+const GRACE_PERIOD_MS = 2000;       // ระยะเวลาเพื่อรอเครื่องพิมพ์ซิงค์ข้อมูลลง log (เดิม 4000ms / 4 วินาที)
+const MISSING_JOB_AGE_MS = 4000;    // อายุงานขั้นต่ำที่จะถือว่างานพิมพ์เสร็จสิ้นหากคิวหายไป (เดิม 8000ms / 8 วินาที)
+
 let pbAdmin: PocketBase | null = null;
 
 async function getAdminClient(): Promise<PocketBase> {
@@ -76,19 +80,29 @@ async function getPrintedPages(cupsJobId: number): Promise<{ printed: number; is
 		const cmd = `grep -E '^[^ ]+\\s+[^ ]+\\s+${cupsJobId}\\b' /var/log/cups/page_log`;
 		const { stdout } = await execAsync(cmd, { shell: '/bin/bash' });
 
-		let printed = 0;
+		let totalFromLog: number | null = null;
+		let pageSum = 0;
 		const lines = stdout.split('\n').filter(Boolean);
 		for (const line of lines) {
-			const parts = line.trim().split(/\s+/);
-			if (parts.length >= 6) {
-				// คอลัมน์ที่ 6 (ดัชนี 5) คือจำนวนก๊อปปี้/หน้าจริงที่พิมพ์ออกมา
-				const copies = parseInt(parts[5], 10);
-				if (Number.isInteger(copies) && copies > 0) {
-					printed += copies;
+			const bracketIndex = line.indexOf(']');
+			if (bracketIndex !== -1) {
+				const afterDate = line.substring(bracketIndex + 1).trim();
+				const tokens = afterDate.split(/\s+/);
+				if (tokens.length >= 2) {
+					const pageNumOrTotal = tokens[0];
+					const copiesOrPages = parseInt(tokens[1], 10);
+					if (Number.isInteger(copiesOrPages) && copiesOrPages > 0) {
+						if (pageNumOrTotal.toLowerCase() === 'total') {
+							totalFromLog = copiesOrPages;
+						} else {
+							pageSum += copiesOrPages;
+						}
+					}
 				}
 			}
 		}
 
+		const printed = totalFromLog !== null ? totalFromLog : pageSum;
 		return { printed, isLogEnabled: true };
 	} catch (err: any) {
 		// grep จะคืนค่า exit code 1 หากไม่พบประวัติในไฟล์ (แปลว่าไฟล์เปิดได้ แต่ยังไม่มีหน้าใดพิมพ์สำเร็จเลย)
@@ -158,6 +172,9 @@ export async function checkPrintJobsStatus(): Promise<void> {
 		const allBlocks = allOutput.split(/^(?=[A-Za-z0-9])/m).filter(Boolean);
 
 		for (const job of activeJobs) {
+			if (job.cups_job_id === null) {
+				continue;
+			}
 			const jobIdentifier = `${job.printer_name}-${job.cups_job_id}`;
 			const isActive = activeOutput.includes(jobIdentifier);
 
@@ -230,13 +247,13 @@ export async function checkPrintJobsStatus(): Promise<void> {
 							inactiveTimestamps.delete(job.id);
 							await updateJobStatus(pb, job, 'completed');
 						} else {
-							// หากยังพิมพ์ไม่ครบ หรือปิดการใช้ log ไว้ ให้เข้าสู่ระบบตรวจสอบ Grace period 4 วินาที
+							// หากยังพิมพ์ไม่ครบ หรือปิดการใช้ log ไว้ ให้เข้าสู่ระบบตรวจสอบ Grace period
 							if (!inactiveTimestamps.has(job.id)) {
 								inactiveTimestamps.set(job.id, Date.now());
-								console.log(`[Monitor] Job ${job.id} (CUPS #${job.cups_job_id}) left active queue. Starting 4s grace period for printer sync...`);
+								console.log(`[Monitor] Job ${job.id} (CUPS #${job.cups_job_id}) left active queue. Starting ${GRACE_PERIOD_MS / 1000}s grace period for printer sync...`);
 							} else {
 								const elapsed = Date.now() - inactiveTimestamps.get(job.id)!;
-								if (elapsed > 4000) {
+								if (elapsed > GRACE_PERIOD_MS) {
 									inactiveTimestamps.delete(job.id);
 
 									if (isLogEnabled) {
@@ -265,10 +282,10 @@ export async function checkPrintJobsStatus(): Promise<void> {
 					}
 				} else {
 					// If the job is completely missing from CUPS queue and history:
-					// If it has been at least 8 seconds since the job was created, it means
+					// If it has been at least MISSING_JOB_AGE_MS since the job was created, it means
 					// the print job has finished printing and was removed from history.
 					const ageMs = Date.now() - new Date(job.created).getTime();
-					if (ageMs > 8000) {
+					if (ageMs > MISSING_JOB_AGE_MS) {
 						inactiveTimestamps.delete(job.id);
 						console.log(`[Monitor] Job ${job.id} (CUPS #${job.cups_job_id}) is missing from lpstat and is ${Math.round(ageMs/1000)}s old. Assuming completed.`);
 						await updateJobStatus(pb, job, 'completed');
