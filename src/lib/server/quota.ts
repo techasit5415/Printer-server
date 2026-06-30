@@ -67,9 +67,22 @@ export async function getQuota(pb: AppPocketBase, userId: string): Promise<Quota
         });
         return calculateSnapshot(row);
     } catch {
-        // ถ้าไม่เคยมีข้อมูล ให้ถือว่าเหลือเท่ากับแพ็กเกจ Default
-        const defaultPkg = await getDefaultPackage(pb);
-        return { remaining: defaultPkg.Total_Quota, total: defaultPkg.Total_Quota, used: 0 };
+        // ถ้าไม่เคยมีข้อมูล สร้างข้อมูลใหม่ลงในตาราง Quota
+        try {
+            const defaultPkg = await getDefaultPackage(pb);
+            const newRow = await pb.collection('Quota').create<QuotaRow>({
+                relation: [userId],          
+                Total_Quota: [defaultPkg.id],
+                Add_Quota: 0,
+                Use: 0
+            }, { expand: 'Total_Quota' });
+            return calculateSnapshot(newRow);
+        } catch (createErr) {
+            console.error('[Quota] Failed to create default quota for user:', userId, createErr);
+            // Fallback คืนค่าจำลองในกรณีสร้างไม่สำเร็จ (เช่น ปัญหาสิทธิ์การเขียน หรือเน็ตเวิร์ก)
+            const defaultPkg = await getDefaultPackage(pb);
+            return { remaining: defaultPkg.Total_Quota, total: defaultPkg.Total_Quota, used: 0 };
+        }
     }
 }
 
@@ -97,9 +110,21 @@ export async function deductQuota(pb: AppPocketBase, userId: string, pages: numb
     if (pages <= 0) return getQuota(pb, userId);
 
     try {
-        const row = await pb.collection('Quota').getFirstListItem<QuotaRow>(`relation="${userId}"`, {
-            expand: 'Total_Quota'
-        });
+        let row: QuotaRow;
+        try {
+            row = await pb.collection('Quota').getFirstListItem<QuotaRow>(`relation="${userId}"`, {
+                expand: 'Total_Quota'
+            });
+        } catch {
+            // หากไม่มีข้อมูลโควต้าในฐานข้อมูล ให้สร้างขึ้นมาใหม่
+            const defaultPkg = await getDefaultPackage(pb);
+            row = await pb.collection('Quota').create<QuotaRow>({
+                relation: [userId],          
+                Total_Quota: [defaultPkg.id],
+                Add_Quota: 0,
+                Use: 0
+            }, { expand: 'Total_Quota' });
+        }
         
         const snap = calculateSnapshot(row);
         if (snap.remaining < pages) return null; // โควต้าไม่พอ
@@ -110,7 +135,8 @@ export async function deductQuota(pb: AppPocketBase, userId: string, pages: numb
         }, { expand: 'Total_Quota' });
 
         return calculateSnapshot(updatedRow);
-    } catch {
+    } catch (err) {
+        console.error('[Quota] deductQuota failed:', err);
         return null;
     }
 }
