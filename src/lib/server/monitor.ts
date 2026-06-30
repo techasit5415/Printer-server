@@ -143,28 +143,13 @@ export async function checkPrintJobsStatus(): Promise<void> {
 		// Fetch active jobs and history detailed blocks from CUPS
 		let activeOutput = '';
 		let allOutput = '';
-		let useMock = false;
 		try {
 			const { stdout: activeOut } = await execAsync('lpstat -o', { shell: '/bin/bash' });
 			activeOutput = activeOut;
 			const { stdout: allOut } = await execAsync('lpstat -l -W all -o', { shell: '/bin/bash' });
 			allOutput = allOut;
 		} catch (err) {
-			// lpstat failed (probably running on Windows local dev or CUPS is offline)
-			useMock = true;
-		}
-
-		if (useMock) {
-			console.log('[Monitor] lpstat is not available. Simulating print queue status updates (Mock Mode)...');
-			for (const job of activeJobs) {
-				const ageMs = Date.now() - new Date(job.created).getTime();
-				if (job.status === 'pending') {
-					await updateJobStatus(pb, job, 'processing');
-				} else if (job.status === 'processing' && ageMs > 10000) {
-					// After 10 seconds, auto-complete the job
-					await updateJobStatus(pb, job, 'completed');
-				}
-			}
+			console.error('[Monitor] lpstat is not available. CUPS might be offline. Please contact Bornzi.', err);
 			return;
 		}
 

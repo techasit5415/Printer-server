@@ -79,9 +79,7 @@ export async function getQuota(pb: AppPocketBase, userId: string): Promise<Quota
             return calculateSnapshot(newRow);
         } catch (createErr) {
             console.error('[Quota] Failed to create default quota for user:', userId, createErr);
-            // Fallback คืนค่าจำลองในกรณีสร้างไม่สำเร็จ (เช่น ปัญหาสิทธิ์การเขียน หรือเน็ตเวิร์ก)
-            const defaultPkg = await getDefaultPackage(pb);
-            return { remaining: defaultPkg.Total_Quota, total: defaultPkg.Total_Quota, used: 0 };
+            throw new Error('ไม่สามารถสร้างสิทธิ์พิมพ์งานได้ กรุณาติดต่อ Bornzi');
         }
     }
 }
