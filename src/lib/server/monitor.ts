@@ -1,9 +1,8 @@
 import PocketBase from 'pocketbase';
-import { env } from '$env/dynamic/private';
 import { exec } from 'node:child_process';
 import { promisify } from 'node:util';
 import { refundQuota } from './quota';
-import type { PrintJobsRecord } from './pocketbase';
+import { getAdminClient, type PrintJobsRecord } from './pocketbase';
 import { serverEnv } from './env';
 
 const execAsync = promisify(exec);
@@ -11,29 +10,6 @@ const execAsync = promisify(exec);
 // ปรับค่าหน่วงเวลาสำหรับการทำงานของระบบ Monitor (มิลลิวินาที)
 const GRACE_PERIOD_MS = 8000;       // ระยะเวลาเพื่อรอเครื่องพิมพ์ซิงค์ข้อมูลลง log (ปรับเป็น 6 วินาที เพื่อให้เครื่องพิมพ์บันทึก log ทัน)
 const MISSING_JOB_AGE_MS = 8000;    // อายุงานขั้นต่ำที่จะถือว่างานพิมพ์เสร็จสิ้นหากคิวหายไป (ปรับเป็น 8 วินาที เพื่อป้องกันเคลียร์งานเร็วเกินไป)
-
-let pbAdmin: PocketBase | null = null;
-
-async function getAdminClient(): Promise<PocketBase> {
-	if (pbAdmin && pbAdmin.authStore.isValid) return pbAdmin;
-
-	const pocketbaseUrl = serverEnv.pocketbaseUrl;
-	pbAdmin = new PocketBase(pocketbaseUrl);
-	pbAdmin.autoCancellation(false);
-
-	if (env.PB_ADMIN_EMAIL && env.PB_ADMIN_PASSWORD) {
-		try {
-			await pbAdmin.admins.authWithPassword(env.PB_ADMIN_EMAIL, env.PB_ADMIN_PASSWORD);
-			console.log('[Monitor] Authenticated successfully as PB Admin.');
-		} catch (authErr) {
-			console.error('[Monitor] Failed to authenticate as PB Admin:', authErr);
-		}
-	} else {
-		console.warn('[Monitor] PB_ADMIN_EMAIL or PB_ADMIN_PASSWORD is not set. Real-time updates might fail.');
-	}
-
-	return pbAdmin;
-}
 
 async function updateJobStatus(
 	pb: PocketBase,

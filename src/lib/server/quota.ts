@@ -1,4 +1,4 @@
-import type { AppPocketBase } from './pocketbase';
+import { getAdminClient, type AppPocketBase } from './pocketbase';
 import { serverEnv } from './env';
 
 export interface QuotaSnapshot {
@@ -48,10 +48,11 @@ function calculateSnapshot(row: QuotaRow): QuotaSnapshot & { tierTotal: number }
  * ดึงข้อมูลแพ็กเกจหลักเริ่มต้น ถ้าไม่มีในระบบให้สร้างใหม่
  */
 async function getDefaultPackage(pb: AppPocketBase): Promise<TotalQuotaPackage> {
+    const adminPb = await getAdminClient();
     try {
-        return await pb.collection('Total_Quota').getFirstListItem<TotalQuotaPackage>('');
+        return await adminPb.collection('Total_Quota').getFirstListItem<TotalQuotaPackage>('');
     } catch {
-        return (await pb.collection('Total_Quota').create({
+        return (await adminPb.collection('Total_Quota').create({
             Total_Quota: serverEnv.defaultQuotaPages || 500
         })) as TotalQuotaPackage;
     }
@@ -69,8 +70,9 @@ export async function getQuota(pb: AppPocketBase, userId: string): Promise<Quota
     } catch {
         // ถ้าไม่เคยมีข้อมูล สร้างข้อมูลใหม่ลงในตาราง Quota
         try {
+            const adminPb = await getAdminClient();
             const defaultPkg = await getDefaultPackage(pb);
-            const newRow = await pb.collection('Quota').create<QuotaRow>({
+            const newRow = await adminPb.collection('Quota').create<QuotaRow>({
                 relation: [userId],          
                 Total_Quota: [defaultPkg.id],
                 Add_Quota: 0,
@@ -115,8 +117,9 @@ export async function deductQuota(pb: AppPocketBase, userId: string, pages: numb
             });
         } catch {
             // หากไม่มีข้อมูลโควต้าในฐานข้อมูล ให้สร้างขึ้นมาใหม่
+            const adminPb = await getAdminClient();
             const defaultPkg = await getDefaultPackage(pb);
-            row = await pb.collection('Quota').create<QuotaRow>({
+            row = await adminPb.collection('Quota').create<QuotaRow>({
                 relation: [userId],          
                 Total_Quota: [defaultPkg.id],
                 Add_Quota: 0,
@@ -128,7 +131,8 @@ export async function deductQuota(pb: AppPocketBase, userId: string, pages: numb
         if (snap.remaining < pages) return null; // โควต้าไม่พอ
 
         // อัปเดตยอดใช้ไป
-        const updatedRow = await pb.collection('Quota').update<QuotaRow>(row.id, { 
+        const adminPb = await getAdminClient();
+        const updatedRow = await adminPb.collection('Quota').update<QuotaRow>(row.id, { 
             Use: row.Use + pages 
         }, { expand: 'Total_Quota' });
 

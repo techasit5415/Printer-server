@@ -11,6 +11,7 @@ import type { Handle } from '@sveltejs/kit';
 import { createPb } from '$lib/pb/server';
 import type { UserRole } from '$lib/types';
 import { startPrintJobMonitor } from '$lib/server/monitor';
+import { getAdminClient } from '$lib/server/pocketbase';
 
 // Start background print job monitor every 500ms
 startPrintJobMonitor(500);
@@ -75,17 +76,27 @@ export const handle: Handle = async ({ event, resolve }) => {
             // 🌟 2. ถ้าเข้าสู่ระบบครั้งแรกแล้วยังไม่มีประวัติในคอลเลกชัน Quota ให้สร้างอัตโนมัติ
             if (!quotaRecord) {
                 try {
+                    const pbAdmin = await getAdminClient();
                     // ก. ค้นหาแถวโควต้าตั้งต้นจากคอลเลกชัน "Total_Quota" (ตารางแม่) 
                     // ในที่นี้เลือกแถวแรกที่มีอยู่ในระบบขึ้นมาเป็นค่า Default (เช่น Tier 100 หน้า หรือ 500 หน้า)
-                    const defaultMaster = await pb.collection('Total_Quota').getFirstListItem('');
+                    const defaultMaster = await pbAdmin.collection('Total_Quota').getFirstListItem('');
                     
                     // ข. ทำการสร้าง Record ใหม่ในคอลเลกชัน "Quota" (ตารางลูก)
-                    quotaRecord = await pb.collection('Quota').create({
-                        relation: userId,                   // ชี้กลับมาที่ ID พนักงาน
-                        Quota: defaultMaster.id,            // ผูกความสัมพันธ์เข้ากับตารางแม่ผ่าน ID ของ Total_Quota
-                        Total_Quota: defaultMaster.Total_Quota, // ดึงค่าตัวเลขจากฟิลด์ Total_Quota ของตารางแม่มาสืบทอด
-                        Use: 0                              // ยอดพิมพ์เริ่มต้นที่ 0 หน้า
-                    });
+                    const newQuota = await pbAdmin.collection('Quota').create({
+                        relation: [userId],          
+                        Total_Quota: [defaultMaster.id],
+                        Add_Quota: 0,
+                        Use: 0
+                    }, { expand: 'Total_Quota' });
+
+                    // จัดการโครงสร้างอ็อบเจกต์ให้ตรงกับ session/locals
+                    quotaRecord = {
+                        id: newQuota.id,
+                        relation: userId,
+                        Total_Quota: defaultMaster.Total_Quota,
+                        Quota: defaultMaster.id,
+                        Use: 0
+                    };
 
                     console.log(`[Hooks] Auto-created initial Quota record for user: ${userId} linking to Master Quota Tier: ${defaultMaster.id}`);
                 } catch (createErr) {
