@@ -75,7 +75,9 @@ export async function submitPrintJob(opts: SubmitOptions): Promise<SubmitResult>
 	if (media) args.push('-o', `media=${media}`);
 	const nup = opts.pagesPerSheet ?? 1;
 	if (nup > 1) {
-		args.push('-o', `number-up=${nup}`, '-o', 'number-up-layout=lrtb');
+		// Both Fuji Xerox and HP IPP Everywhere printers rotate/transpose pages
+		// similarly, requiring 'tbrl' to get a physical 'lrtb' reading layout on paper.
+		args.push('-o', `number-up=${nup}`, '-o', 'number-up-layout=tbrl');
 	}
 	// Colour mode: defaults to colour. Mono prints black-and-white on
 	// a colour printer, saving toner/ink.
