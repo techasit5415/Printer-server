@@ -1,5 +1,6 @@
 <script lang="ts">
-	import { enhance } from "$app/forms";
+	import { deserialize, applyAction } from "$app/forms";
+	import { invalidateAll } from "$app/navigation";
 	import {
 		BookOpen,
 		Check,
@@ -14,6 +15,8 @@
 	import Button from "$lib/components/Button.svelte";
 
 	let submitting = $state(false);
+	let uploadProgress = $state(0);
+	let isProcessing = $state(false);
 	let dragOver = $state(false);
 
 	// Two-step upload flow state.
@@ -77,6 +80,80 @@
 			uploadFormEl.requestSubmit();
 		}
 	}
+
+	async function handleFormSubmit(event: SubmitEvent): Promise<void> {
+		event.preventDefault();
+		if (submitting) return;
+
+		const form = event.currentTarget as HTMLFormElement;
+		const formData = new FormData(form);
+
+		submitting = true;
+		uploadProgress = 0;
+		isProcessing = false;
+
+		const xhr = new XMLHttpRequest();
+		const actionUrl = form.action || "?/print";
+
+		xhr.open("POST", actionUrl, true);
+		xhr.setRequestHeader("x-sveltekit-action", "true");
+
+		xhr.upload.onprogress = (e) => {
+			if (e.lengthComputable) {
+				const pct = Math.round((e.loaded / e.total) * 100);
+				uploadProgress = pct;
+				if (pct >= 100) {
+					isProcessing = true;
+				}
+			}
+		};
+
+		xhr.onload = async () => {
+			try {
+				if (xhr.status >= 200 && xhr.status < 300) {
+					const result = deserialize(xhr.responseText);
+					if (result.type === "success") {
+						await invalidateAll();
+						clearStaged();
+					}
+					await applyAction(result);
+				} else {
+					const result = {
+						type: "failure",
+						status: xhr.status,
+						data: { ok: false, message: `เกิดข้อผิดพลาดในการส่งไฟล์ (${xhr.status})` }
+					} as any;
+					await applyAction(result);
+				}
+			} catch (err) {
+				console.error("Failed to parse form action response:", err);
+				const result = {
+					type: "failure",
+					status: 500,
+					data: { ok: false, message: "การประมวลผลลัพธ์จากเซิร์ฟเวอร์ล้มเหลว" }
+				} as any;
+				await applyAction(result);
+			} finally {
+				submitting = false;
+				uploadProgress = 0;
+				isProcessing = false;
+			}
+		};
+
+		xhr.onerror = async () => {
+			submitting = false;
+			uploadProgress = 0;
+			isProcessing = false;
+			const result = {
+				type: "failure",
+				status: 500,
+				data: { ok: false, message: "เครือข่ายขัดข้อง กรุณาตรวจสอบการเชื่อมต่ออินเทอร์เน็ต" }
+			} as any;
+			await applyAction(result);
+		};
+
+		xhr.send(formData);
+	}
 </script>
 
 <section class="mb-8">
@@ -85,14 +162,7 @@
 		method="POST"
 		action="?/print"
 		enctype="multipart/form-data"
-		use:enhance={() => {
-			submitting = true;
-			return async ({ update }) => {
-				await update();
-				submitting = false;
-				clearStaged();
-			};
-		}}
+		onsubmit={handleFormSubmit}
 	>
 		<!-- Hidden file input -->
 		<input
@@ -382,26 +452,59 @@
 				</div>
 
 				<!-- Confirm + cancel row -->
-				<div class="mt-6 flex items-center justify-end gap-2">
-					<Button
-						variant="ghost"
-						size="md"
-						type="button"
-						onclick={clearStaged}
-						disabled={submitting}
-					>
-						ยกเลิก
-					</Button>
-					<Button
-						variant="primary"
-						size="md"
-						type="button"
-						onclick={confirmPrint}
-						disabled={submitting || copies < 1}
-					>
-						{submitting ? "กำลังส่ง..." : "ยืนยันพิมพ์"}
-					</Button>
-				</div>
+				{#if submitting}
+					<div class="mt-6 border-t border-strong-app pt-5">
+						<div class="flex items-center justify-between text-xs mb-2">
+							<span class="font-medium text-fg-app flex items-center gap-2">
+								{#if isProcessing}
+									<span class="relative flex h-2 w-2">
+										<span class="animate-ping absolute inline-flex h-full w-full rounded-full bg-accent opacity-75"></span>
+										<span class="relative inline-flex rounded-full h-2 w-2 bg-accent"></span>
+									</span>
+									กำลังประมวลผลไฟล์และจัดทำคิวพิมพ์...
+								{:else}
+									<Upload class="h-3.5 w-3.5 animate-bounce text-accent" />
+									กำลังอัปโหลดไฟล์...
+								{/if}
+							</span>
+							<span class="font-mono text-muted-app">{uploadProgress}%</span>
+						</div>
+						<div class="w-full overflow-hidden rounded-full bg-elevated h-2">
+							<div
+								class="h-full rounded-full bg-accent transition-all duration-300 ease-out shadow-[0_0_8px_rgba(37,99,235,0.4)]"
+								style="width: {uploadProgress}%"
+							></div>
+						</div>
+						<p class="mt-2 text-center text-xs text-muted-app animate-pulse">
+							{#if isProcessing}
+								กรุณารอสักครู่ ระบบกำลังคำนวณจำนวนหน้าและส่งเข้าเครื่องพิมพ์
+							{:else}
+								อย่าเพิ่งปิดหน้าต่างนี้จนกว่าการอัปโหลดจะเสร็จสิ้น
+							{/if}
+						</p>
+					</div>
+				{:else}
+					<div class="mt-6 flex items-center justify-end gap-2">
+						<Button
+							variant="ghost"
+							size="md"
+							type="button"
+							onclick={clearStaged}
+							disabled={submitting}
+						>
+							ยกเลิก
+						</Button>
+						<Button
+							variant="primary"
+							size="md"
+							type="button"
+							onclick={confirmPrint}
+							disabled={submitting || copies < 1}
+						>
+							ยืนยันพิมพ์
+						</Button>
+					</div>
+				{/if}
 			</div>
 		{/if}
 	</form>
