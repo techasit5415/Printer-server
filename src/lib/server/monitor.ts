@@ -11,6 +11,10 @@ const execAsync = promisify(exec);
 const GRACE_PERIOD_MS = 8000;       // ระยะเวลาเพื่อรอเครื่องพิมพ์ซิงค์ข้อมูลลง log (ปรับเป็น 6 วินาที เพื่อให้เครื่องพิมพ์บันทึก log ทัน)
 const MISSING_JOB_AGE_MS = 8000;    // อายุงานขั้นต่ำที่จะถือว่างานพิมพ์เสร็จสิ้นหากคิวหายไป (ปรับเป็น 8 วินาที เพื่อป้องกันเคลียร์งานเร็วเกินไป)
 
+// Maps to track print job states and grace periods
+const inactiveTimestamps = new Map<string, number>();
+const missingJobTimestamps = new Map<string, number>();
+
 async function updateJobStatus(
 	pb: PocketBase,
 	job: PrintJobsRecord,
@@ -44,6 +48,11 @@ async function updateJobStatus(
 		} catch (refundErr) {
 			console.error(`[Monitor] Failed to refund user ${job.user} for job ${job.id}:`, refundErr);
 		}
+	}
+
+	if (newStatus === 'completed' || newStatus === 'failed') {
+		inactiveTimestamps.delete(job.id);
+		missingJobTimestamps.delete(job.id);
 	}
 }
 
@@ -98,8 +107,6 @@ async function getPrintedPages(cupsJobId: number): Promise<{ printed: number; is
 	}
 }
 
-// Map to track when jobs left the active queue to enforce a sync grace period
-const inactiveTimestamps = new Map<string, number>();
 
 export async function checkPrintJobsStatus(): Promise<void> {
 	try {
@@ -246,33 +253,36 @@ export async function checkPrintJobsStatus(): Promise<void> {
 					}
 				} else {
 					// If the job is completely missing from CUPS queue and history:
-					// If it has been at least MISSING_JOB_AGE_MS since the job was created, it means
-					// the print job has finished printing and was removed from history.
-					const ageMs = Date.now() - new Date(job.created).getTime();
-					if (ageMs > MISSING_JOB_AGE_MS) {
-						inactiveTimestamps.delete(job.id);
-						console.log(`[Monitor] Job ${job.id} (CUPS #${job.cups_job_id}) is missing from lpstat (age: ${Math.round(ageMs / 1000)}s). Verifying via page_log...`);
-						const { printed, isLogEnabled } = await getPrintedPages(job.cups_job_id);
-						if (isLogEnabled) {
-							const toRefund = Math.max(0, job.pages - printed);
-							if (printed > 0) {
-								await updateJobStatus(
-									pb,
-									job,
-									'completed',
-									undefined,
-									toRefund,
-									printed
-								);
-							} else {
-								await updateJobStatus(pb, job, 'failed', 'Job disappeared from CUPS without printing pages');
-							}
-						} else {
-							// Fallback if log is disabled
-							await updateJobStatus(pb, job, 'completed');
-						}
+					// We start a grace period from when we first notice it is missing,
+					// to give CUPS time to write to the page_log.
+					if (!missingJobTimestamps.has(job.id)) {
+						missingJobTimestamps.set(job.id, Date.now());
+						console.log(`[Monitor] Job ${job.id} (CUPS #${job.cups_job_id}) is missing from lpstat. Waiting for sync...`);
 					} else {
-						console.log(`[Monitor] Job ${job.id} (CUPS #${job.cups_job_id}) is brand new (${Math.round(ageMs / 1000)}s old) and not yet listed. Waiting...`);
+						const elapsed = Date.now() - missingJobTimestamps.get(job.id)!;
+						if (elapsed > GRACE_PERIOD_MS) {
+							missingJobTimestamps.delete(job.id);
+							console.log(`[Monitor] Job ${job.id} (CUPS #${job.cups_job_id}) has been missing from lpstat for ${Math.round(elapsed / 1000)}s. Verifying via page_log...`);
+							const { printed, isLogEnabled } = await getPrintedPages(job.cups_job_id);
+							if (isLogEnabled) {
+								const toRefund = Math.max(0, job.pages - printed);
+								if (printed > 0) {
+									await updateJobStatus(
+										pb,
+										job,
+										'completed',
+										undefined,
+										toRefund,
+										printed
+									);
+								} else {
+									await updateJobStatus(pb, job, 'failed', 'Job disappeared from CUPS without printing pages');
+								}
+							} else {
+								// Fallback if log is disabled
+								await updateJobStatus(pb, job, 'completed');
+							}
+						}
 					}
 				}
 			}
