@@ -6,9 +6,14 @@ import {
 	createPocketBaseClient,
 	type PrintJobsRecord
 } from '$lib/server/pocketbase';
-import { safeUnlink, submitPrintJob, cancelPrintJob, getPageCountOfFile } from '$lib/server/print';
-import { deductQuota, getQuota, refundQuota } from '$lib/server/quota';
-import { clearSession } from '$lib/server/session';
+import { safeUnlink } from '$lib/server/functions/print/safeUnlink';
+import { submitPrintJob } from '$lib/server/functions/print/submitPrintJob';
+import { cancelPrintJob } from '$lib/server/functions/print/cancelPrintJob';
+import { getPageCountOfFile } from '$lib/server/functions/print/getPageCountOfFile';
+import { deductQuota } from '$lib/server/functions/quota/deductQuota';
+import { getQuota } from '$lib/server/functions/quota/getQuota';
+import { refundQuota } from '$lib/server/functions/quota/refundQuota';
+import { clearSession } from '$lib/server/functions/session/clearSession';
 import { serverEnv } from '$lib/server/env';
 import type { PageServerLoad } from './$types';
 

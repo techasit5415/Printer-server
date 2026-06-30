@@ -1,5 +1,5 @@
 import { redirect } from '@sveltejs/kit';
-import { clearSession } from '$lib/server/session';
+import { clearSession } from '$lib/server/functions/session/clearSession';
 import type { RequestHandler } from './$types';
 
 /**

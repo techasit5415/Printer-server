@@ -1,9 +1,12 @@
 import { error, redirect, type Actions } from '@sveltejs/kit';
 import type { PageServerLoad } from './$types';
 import type { PrintJobsRecord, UsersRecord } from '$lib/server/pocketbase';
-import { adjustRemaining, listAllQuotas, resetToDefault, refundQuota } from '$lib/server/quota';
-import { clearSession } from '$lib/server/session';
-import { cancelPrintJob } from '$lib/server/print';
+import { adjustRemaining } from '$lib/server/functions/quota/adjustRemaining';
+import { listAllQuotas } from '$lib/server/functions/quota/listAllQuotas';
+import { resetToDefault } from '$lib/server/functions/quota/resetToDefault';
+import { refundQuota } from '$lib/server/functions/quota/refundQuota';
+import { clearSession } from '$lib/server/functions/session/clearSession';
+import { cancelPrintJob } from '$lib/server/functions/print/cancelPrintJob';
 
 /**
  * ปรับลำดับคิวพิมพ์ในระบบ

@@ -10,8 +10,8 @@
 import type { Handle } from '@sveltejs/kit';
 import { createPb } from '$lib/pb/server';
 import type { UserRole } from '$lib/types';
-import { startPrintJobMonitor } from '$lib/server/monitor';
-import { getAdminClient } from '$lib/server/pocketbase';
+import { startPrintJobMonitor } from '$lib/server/functions/monitor/startPrintJobMonitor';
+import { getAdminClient } from '$lib/server/functions/pocketbase/getAdminClient';
 
 // Start background print job monitor every 500ms
 startPrintJobMonitor(500);
@@ -26,11 +26,11 @@ interface UserRecord {
     name?: string;
     username?: string;
     user_type?: string | null;
-    expand?: { 
+    expand?: {
         user_type?: UserTypeRef;
-        Quota_via_relation?: Array<{
+        Quota_via_user?: Array<{
             id: string;
-            relation: string;
+            user: string;
             Total_Quota: number;
             Quota: string;
             Use: number;
@@ -39,8 +39,8 @@ interface UserRecord {
 }
 
 function resolveRole(record: UserRecord): UserRole {
-    // PB returns expanded relations under `expand.<field>`, NOT inline on
-    // the field itself. `user_type` stays as the relation ID, the actual
+    // PB returns expanded user under `expand.<field>`, NOT inline on
+    // the field itself. `user_type` stays as the user ID, the actual
     // record lives at `record.expand.user_type`.
     const expanded = record.expand?.user_type;
     const typeName = expanded?.type ?? null;
@@ -63,27 +63,28 @@ export const handle: Handle = async ({ event, resolve }) => {
             await pb.collection('users').authRefresh();
             const userId = pb.authStore.record?.id;
             if (!userId) throw new Error('no user id in auth store');
-            
-            // 1. ดึงข้อมูลพนักงาน + ดึงข้อมูลจากคอลเลกชัน Quota (ตารางลูก) ที่ผูกผ่านฟิลด์ relation
-            // โดยตั้งชื่อการขยายความสัมพันธ์ย้อนกลับ (Back-relation) ตามตาราง Quota 
-            let full = (await pb.collection('users').getOne(userId, {
-                expand: 'user_type,Quota_via_relation' 
-            })) as unknown as UserRecord;
 
-            // ดึงข้อมูลผ่านตัวแปรที่เป็นพิมพ์ใหญ่ Quota_via_relation ให้ตรงกับ Schema
-            let quotaRecord = full.expand?.Quota_via_relation?.[0] ?? null;
+            const pbAdmin = await getAdminClient();
+
+            // 1. ดึงข้อมูลพนักงาน + ดึงข้อมูลจากคอลเลกชัน Quota (ตารางลูก) ที่ผูกผ่านฟิลด์ user โดยใช้สิทธิ์ Admin
+            // เพื่อหลีกเลี่ยงข้อจำกัดของสิทธิ์การเข้าถึง (View/List rules) บนคอลเลกชัน Quota
+            let full = (await pbAdmin.collection('users').getOne(userId, {
+                expand: 'user_type,Quota_via_user.Total_Quota'
+            })) as unknown as any;
+
+            // ดึงข้อมูลผ่านตัวแปรที่เป็นพิมพ์ใหญ่ Quota_via_user ให้ตรงกับ Schema
+            let quotaRecord = full.expand?.Quota_via_user?.[0] ?? null;
 
             // 🌟 2. ถ้าเข้าสู่ระบบครั้งแรกแล้วยังไม่มีประวัติในคอลเลกชัน Quota ให้สร้างอัตโนมัติ
             if (!quotaRecord) {
                 try {
-                    const pbAdmin = await getAdminClient();
                     // ก. ค้นหาแถวโควต้าตั้งต้นจากคอลเลกชัน "Total_Quota" (ตารางแม่) 
                     // ในที่นี้เลือกแถวแรกที่มีอยู่ในระบบขึ้นมาเป็นค่า Default (เช่น Tier 100 หน้า หรือ 500 หน้า)
                     const defaultMaster = await pbAdmin.collection('Total_Quota').getFirstListItem('');
-                    
+
                     // ข. ทำการสร้าง Record ใหม่ในคอลเลกชัน "Quota" (ตารางลูก)
                     const newQuota = await pbAdmin.collection('Quota').create({
-                        relation: [userId],          
+                        user: [userId],
                         Total_Quota: [defaultMaster.id],
                         Add_Quota: 0,
                         Use: 0
@@ -92,9 +93,13 @@ export const handle: Handle = async ({ event, resolve }) => {
                     // จัดการโครงสร้างอ็อบเจกต์ให้ตรงกับ session/locals
                     quotaRecord = {
                         id: newQuota.id,
-                        relation: userId,
-                        Total_Quota: defaultMaster.Total_Quota,
-                        Quota: defaultMaster.id,
+                        user: userId,
+                        expand: {
+                            Total_Quota: {
+                                id: defaultMaster.id,
+                                Total_Quota: defaultMaster.Total_Quota
+                            }
+                        },
                         Use: 0
                     };
 
@@ -112,10 +117,10 @@ export const handle: Handle = async ({ event, resolve }) => {
                 username: full.username,
                 role: resolveRole(full),
                 token: pb.authStore.token,
-                
+
                 quota: {
                     id: quotaRecord?.id ?? null,
-                    total: quotaRecord?.Total_Quota ?? 0, // สิทธิ์จำนวนหน้า (เช่น 500)
+                    total: (quotaRecord?.expand?.Total_Quota?.Total_Quota ?? 0) + (quotaRecord?.Add_Quota ?? 0), // สิทธิ์ทั้งหมด (สิทธิ์หลัก + โบนัส)
                     used: quotaRecord?.Use ?? 0           // จำนวนหน้าใช้ไปล่าสุด (เช่น 0)
                 }
             };

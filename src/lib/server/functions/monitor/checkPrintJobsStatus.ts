@@ -1,112 +1,13 @@
-import PocketBase from 'pocketbase';
 import { exec } from 'node:child_process';
 import { promisify } from 'node:util';
-import { refundQuota } from './quota';
-import { getAdminClient, type PrintJobsRecord } from './pocketbase';
-import { serverEnv } from './env';
+import { getAdminClient } from '../pocketbase/getAdminClient';
+import type { PrintJobsRecord } from '../../pocketbase';
+import { inactiveTimestamps, missingJobTimestamps } from './timestamps';
+import { updateJobStatus } from './updateJobStatus';
+import { GRACE_PERIOD_MS } from './constants';
+import { getPrintedPages } from './getPrintedPages';
 
 const execAsync = promisify(exec);
-
-// ปรับค่าหน่วงเวลาสำหรับการทำงานของระบบ Monitor (มิลลิวินาที)
-const GRACE_PERIOD_MS = 8000;       // ระยะเวลาเพื่อรอเครื่องพิมพ์ซิงค์ข้อมูลลง log (ปรับเป็น 6 วินาที เพื่อให้เครื่องพิมพ์บันทึก log ทัน)
-const MISSING_JOB_AGE_MS = 8000;    // อายุงานขั้นต่ำที่จะถือว่างานพิมพ์เสร็จสิ้นหากคิวหายไป (ปรับเป็น 8 วินาที เพื่อป้องกันเคลียร์งานเร็วเกินไป)
-
-// Maps to track print job states and grace periods
-const inactiveTimestamps = new Map<string, number>();
-const missingJobTimestamps = new Map<string, number>();
-
-async function updateJobStatus(
-	pb: PocketBase,
-	job: PrintJobsRecord,
-	newStatus: 'completed' | 'failed' | 'processing' | 'pending',
-	errorMessage?: string,
-	refundPages?: number,
-	actualPages?: number
-): Promise<void> {
-	console.log(`[Monitor] Updating job ${job.id} (CUPS #${job.cups_job_id}) from "${job.status}" to "${newStatus}"`);
-
-	try {
-		const updatePayload: any = {
-			status: newStatus,
-			error_message: errorMessage || null
-		};
-		if (actualPages !== undefined) {
-			updatePayload.pages = actualPages;
-		}
-		await pb.collection('print_jobs').update(job.id, updatePayload);
-	} catch (dbErr) {
-		console.error(`[Monitor] Failed to update job status for ${job.id} in DB:`, dbErr);
-		return;
-	}
-
-	const pagesToRefund = refundPages !== undefined ? refundPages : (newStatus === 'failed' ? job.pages : 0);
-
-	if (pagesToRefund > 0) {
-		try {
-			console.log(`[Monitor] Refunding ${pagesToRefund} pages to user ${job.user} for job ${job.id}`);
-			await refundQuota(pb, job.user, pagesToRefund);
-		} catch (refundErr) {
-			console.error(`[Monitor] Failed to refund user ${job.user} for job ${job.id}:`, refundErr);
-		}
-	}
-
-	if (newStatus === 'completed' || newStatus === 'failed') {
-		inactiveTimestamps.delete(job.id);
-		missingJobTimestamps.delete(job.id);
-	}
-}
-
-/**
- * ดึงจำนวนหน้าจริงที่พิมพ์เสร็จออกจากเครื่องปริ้นจริงจาก /var/log/cups/page_log
- */
-async function getPrintedPages(cupsJobId: number): Promise<{ printed: number; isLogEnabled: boolean }> {
-	try {
-		// ค้นหาบรรทัดของ Job ID นี้ในไฟล์ page_log
-		const cmd = `grep -E '^[^ ]+\\s+[^ ]+\\s+${cupsJobId}\\b' /var/log/cups/page_log`;
-		const { stdout } = await execAsync(cmd, { shell: '/bin/bash' });
-
-		let totalFromLog: number | null = null;
-		let pageSum = 0;
-		const lines = stdout.split('\n').filter(Boolean);
-		for (const line of lines) {
-			const bracketIndex = line.indexOf(']');
-			if (bracketIndex !== -1) {
-				const afterDate = line.substring(bracketIndex + 1).trim();
-				const tokens = afterDate.split(/\s+/);
-				if (tokens.length >= 2) {
-					const pageNumOrTotal = tokens[0];
-					const copiesOrPages = parseInt(tokens[1], 10);
-					if (Number.isInteger(copiesOrPages) && copiesOrPages > 0) {
-						if (pageNumOrTotal.toLowerCase() === 'total') {
-							totalFromLog = copiesOrPages;
-						} else {
-							pageSum += copiesOrPages;
-						}
-					}
-				}
-			}
-		}
-
-		const printed = totalFromLog !== null ? totalFromLog : pageSum;
-		return { printed, isLogEnabled: true };
-	} catch (err: any) {
-		// grep จะคืนค่า exit code 1 หากไม่พบประวัติในไฟล์ (แปลว่าไฟล์เปิดได้ แต่ยังไม่มีหน้าใดพิมพ์สำเร็จเลย)
-		if (err && err.code === 1) {
-			try {
-				// เช็คความเคลื่อนไหวล่าสุดของไฟล์เพื่อตรวจสอบว่าระบบเปิดบันทึก page_log อยู่จริงไหม
-				const { stdout: tailOut } = await execAsync('tail -n 10 /var/log/cups/page_log', { shell: '/bin/bash' });
-				const isLogEnabled = tailOut.trim().length > 0;
-				return { printed: 0, isLogEnabled };
-			} catch {
-				return { printed: 0, isLogEnabled: false };
-			}
-		}
-
-		// เปิดไฟล์ไม่ได้ หรือไม่มีสิทธิ์อ่าน
-		return { printed: 0, isLogEnabled: false };
-	}
-}
-
 
 export async function checkPrintJobsStatus(): Promise<void> {
 	try {
@@ -289,34 +190,5 @@ export async function checkPrintJobsStatus(): Promise<void> {
 		}
 	} catch (err) {
 		console.error('[Monitor] Error in checkPrintJobsStatus:', err);
-	}
-}
-
-const GLOBAL_MONITOR_KEY = Symbol.for('antigravity.print_job_monitor');
-
-export function startPrintJobMonitor(intervalMs = 5000): void {
-	// Check if running on global object to prevent duplicate loops during Vite HMR
-	if ((globalThis as any)[GLOBAL_MONITOR_KEY]) {
-		return;
-	}
-
-	console.log(`[Monitor] Starting print job monitor (interval: ${intervalMs}ms)...`);
-
-	// Run immediately once
-	checkPrintJobsStatus();
-
-	const interval = setInterval(async () => {
-		await checkPrintJobsStatus();
-	}, intervalMs);
-
-	(globalThis as any)[GLOBAL_MONITOR_KEY] = interval;
-}
-
-export function stopPrintJobMonitor(): void {
-	const interval = (globalThis as any)[GLOBAL_MONITOR_KEY];
-	if (interval) {
-		clearInterval(interval);
-		delete (globalThis as any)[GLOBAL_MONITOR_KEY];
-		console.log('[Monitor] Print job monitor stopped.');
 	}
 }
