@@ -19,7 +19,7 @@ interface TotalQuotaPackage {
 
 interface QuotaRow {
     id: string;
-    relation: string;
+    user: string;
     Total_Quota?: string;     // (Relation) ชี้ไปที่ตาราง Total_Quota (แพ็กเกจสิทธิ์หลัก)
     Add_Quota: number;        // (Number) สิทธิ์เสริม/โบนัสรายบุคคล
     Use: number;              // (Number) จำนวนหน้าที่ใช้ไป
@@ -35,7 +35,7 @@ function calculateSnapshot(row: QuotaRow): QuotaSnapshot & { tierTotal: number }
     const personalBonus = row.Add_Quota || 0;                    // ดึงโบนัสส่วนตัว
     const absoluteTotal = tierTotal + personalBonus;             // รวมโควต้าทั้งหมด
     const used = row.Use || 0;
-    
+
     return {
         remaining: Math.max(0, absoluteTotal - used),
         total: absoluteTotal,
@@ -73,7 +73,7 @@ export async function getQuota(pb: AppPocketBase, userId: string): Promise<Quota
             const adminPb = await getAdminClient();
             const defaultPkg = await getDefaultPackage(pb);
             const newRow = await adminPb.collection('Quota').create<QuotaRow>({
-                relation: [userId],          
+                relation: [userId],
                 Total_Quota: [defaultPkg.id],
                 Add_Quota: 0,
                 Use: 0
@@ -93,7 +93,7 @@ export async function listAllQuotas(pb: AppPocketBase): Promise<Map<string, User
     const rows = await pb.collection('Quota').getFullList<QuotaRow>({
         expand: 'Total_Quota' // ⚡ ดึงข้อมูลตารางแม่มาพร้อมกันทุกคนใน Request เดียว
     });
-    
+
     const out = new Map<string, UserQuotaRow>();
     for (const r of rows) {
         if (!r.relation) continue;
@@ -120,20 +120,20 @@ export async function deductQuota(pb: AppPocketBase, userId: string, pages: numb
             const adminPb = await getAdminClient();
             const defaultPkg = await getDefaultPackage(pb);
             row = await adminPb.collection('Quota').create<QuotaRow>({
-                relation: [userId],          
+                relation: [userId],
                 Total_Quota: [defaultPkg.id],
                 Add_Quota: 0,
                 Use: 0
             }, { expand: 'Total_Quota' });
         }
-        
+
         const snap = calculateSnapshot(row);
         if (snap.remaining < pages) return null; // โควต้าไม่พอ
 
         // อัปเดตยอดใช้ไป
         const adminPb = await getAdminClient();
-        const updatedRow = await adminPb.collection('Quota').update<QuotaRow>(row.id, { 
-            Use: row.Use + pages 
+        const updatedRow = await adminPb.collection('Quota').update<QuotaRow>(row.id, {
+            Use: row.Use + pages
         }, { expand: 'Total_Quota' });
 
         return calculateSnapshot(updatedRow);
@@ -150,8 +150,8 @@ export async function refundQuota(pb: AppPocketBase, userId: string, pages: numb
     if (pages <= 0) return getQuota(pb, userId);
     try {
         const row = await pb.collection('Quota').getFirstListItem<QuotaRow>(`relation="${userId}"`, { expand: 'Total_Quota' });
-        const updatedRow = await pb.collection('Quota').update<QuotaRow>(row.id, { 
-            Use: Math.max(0, row.Use - pages) 
+        const updatedRow = await pb.collection('Quota').update<QuotaRow>(row.id, {
+            Use: Math.max(0, row.Use - pages)
         }, { expand: 'Total_Quota' });
         return calculateSnapshot(updatedRow);
     } catch {
@@ -167,19 +167,19 @@ export async function adjustRemaining(pb: AppPocketBase, userId: string, delta: 
 
     try {
         const row = await pb.collection('Quota').getFirstListItem<QuotaRow>(`relation="${userId}"`, { expand: 'Total_Quota' });
-        
+
         // อัปเดตตัวเลขเข้าฟิลด์ Add_Quota
-        const updatedRow = await pb.collection('Quota').update<QuotaRow>(row.id, { 
-            Add_Quota: row.Add_Quota + delta 
+        const updatedRow = await pb.collection('Quota').update<QuotaRow>(row.id, {
+            Add_Quota: row.Add_Quota + delta
         }, { expand: 'Total_Quota' });
-        
+
         return calculateSnapshot(updatedRow);
     } catch {
         // ถ้าไม่เคยมีฐานข้อมูลโควต้า สร้างใหม่เลย
         const defaultPkg = await getDefaultPackage(pb);
-		const newRow = await pb.collection('Quota').create<QuotaRow>({
+        const newRow = await pb.collection('Quota').create<QuotaRow>({
             // ⚡ ใส่ก้ามปูครอบให้กลายเป็น Array
-            relation: [userId],          
+            relation: [userId],
             Total_Quota: [defaultPkg.id],
             Add_Quota: delta > 0 ? delta : 0,
             Use: 0
@@ -195,24 +195,24 @@ export async function adjustRemaining(pb: AppPocketBase, userId: string, delta: 
 export async function resetToDefault(pb: AppPocketBase, userId: string): Promise<QuotaSnapshot> {
     try {
         const row = await pb.collection('Quota').getFirstListItem<QuotaRow>(`relation="${userId}"`, { expand: 'Total_Quota' });
-        
+
         // ล้างยอด Use เป็น 0 และล้างโบนัส Add_Quota ส่วนตัวเป็น 0
-        const updatedRow = await pb.collection('Quota').update<QuotaRow>(row.id, { 
-            Add_Quota: 0, 
-            Use: 0 
+        const updatedRow = await pb.collection('Quota').update<QuotaRow>(row.id, {
+            Add_Quota: 0,
+            Use: 0
         }, { expand: 'Total_Quota' });
 
         return calculateSnapshot(updatedRow);
     } catch {
         const defaultPkg = await getDefaultPackage(pb);
- 		const newRow = await pb.collection('Quota').create<QuotaRow>({
+        const newRow = await pb.collection('Quota').create<QuotaRow>({
             // ⚡ ใส่ก้ามปูครอบเหมือนกัน
             relation: [userId],
             Total_Quota: [defaultPkg.id],
             Add_Quota: 0,
             Use: 0
         }, { expand: 'Total_Quota' });
-        
+
         return calculateSnapshot(newRow);
     }
 }
