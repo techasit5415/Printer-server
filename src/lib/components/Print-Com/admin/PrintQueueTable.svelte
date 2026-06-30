@@ -64,10 +64,10 @@
 					>
 					<th class="px-6 py-3 text-left font-medium">ผู้สั่งพิมพ์</th
 					>
-					<th class="px-6 py-3 text-left font-medium">หน้า</th>
-					<th class="px-6 py-3 text-left font-medium">Copy</th>
 					<th class="px-6 py-3 text-left font-medium">เครื่องพิมพ์</th
 					>
+					<th class="px-6 py-3 text-left font-medium">Copy</th>
+					<th class="px-6 py-3 text-left font-medium">หน้า</th>
 					<th class="px-6 py-3 text-left font-medium">สถานะระบบ</th>
 					<th class="px-6 py-3 text-left font-medium">การจัดการคิว</th
 					>
