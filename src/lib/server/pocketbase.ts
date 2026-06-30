@@ -19,7 +19,7 @@ export interface UsersRecord {
 	name?: string;
 	avatar?: string;
 	user_type?: string | null;
-	role?: 'admin' | 'user';
+	role?: 'admin' | 'user' | 'superadmin';
 	verified?: boolean;
 	created?: string;
 	updated?: string;

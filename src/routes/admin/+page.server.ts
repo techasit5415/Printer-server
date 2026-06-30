@@ -30,7 +30,7 @@ function decorateQueuePositions(
 export const load: PageServerLoad = async ({ locals }) => {
     // 🛡️ ป้องกันความปลอดภัย: เช็คว่าล็อกอินและเป็นแอดมินของระบบจริงไหม
     if (!locals.user) throw redirect(303, '/login');
-    if (locals.user.role !== 'admin') throw redirect(303, '/user');
+    if (locals.user.role !== 'superadmin') throw redirect(303, '/user');
 
     // ⚡ ดึง pb client ประจำ Request ตัวเองมาใช้เลย (สิทธิ์ Admin ตาราง users ทำงานได้ทันทีผ่าน API Rules)
     const pb = locals.pb;
@@ -63,7 +63,7 @@ export const load: PageServerLoad = async ({ locals }) => {
 
 export const actions: Actions = {
     adjustQuota: async ({ request, locals }) => {
-        if (!locals.user || locals.user.role !== 'admin') throw error(403, 'Forbidden');
+        if (!locals.user || locals.user.role !== 'superadmin') throw error(403, 'Forbidden');
 
         const data = await request.formData();
         const userId = String(data.get('userId') ?? '');
@@ -75,12 +75,12 @@ export const actions: Actions = {
 
         const pb = locals.pb; // ⚡ เปลี่ยนมาใช้สิทธิ์ผ่านบัญชีแอดมินปัจจุบัน
 
-try {
+        try {
             const snapshot = await adjustRemaining(pb, userId, delta);
-            
+
             // ❌ ลบบรรทัดนี้ออกเพื่อเลี่ยงกฎ View Rule
             // const user = await pb.collection('users').getOne<UsersRecord>(userId); 
-            
+
             return {
                 ok: true,
                 // เปลี่ยนไปแสดงผลด้วยรหัสผู้ใช้ (userId) แทนชื่อ
@@ -92,22 +92,22 @@ try {
         }
     },
 
-resetQuota: async ({ request, locals }) => {
+    resetQuota: async ({ request, locals }) => {
         if (!locals.user || locals.user.role !== 'admin') throw error(403, 'Forbidden');
 
         const data = await request.formData();
         const userId = String(data.get('userId') ?? '');
-        
+
         // ⚡ รับชื่อมาจากหน้าบ้าน (ถ้าไม่มีให้ fallback เป็นรหัส)
-        const userName = String(data.get('userName') ?? userId); 
-        
+        const userName = String(data.get('userName') ?? userId);
+
         if (!userId) return { ok: false, message: 'ข้อมูลไม่ถูกต้อง' };
 
         const pb = locals.pb;
 
         try {
             const snapshot = await resetToDefault(pb, userId);
-            
+
             return {
                 ok: true,
                 // ⚡ เอา userName มาใส่ตรงนี้ได้เลย!
@@ -138,7 +138,7 @@ resetQuota: async ({ request, locals }) => {
         const ok = settled.filter((r) => r.status === 'fulfilled').length;
         const failed = settled.length - ok;
 
-        return failed === 0 
+        return failed === 0
             ? { ok: true, message: `เพิ่มโควต้า ${delta >= 0 ? '+' : ''}${delta} หน้า ให้ ${ok} คนเรียบร้อย` }
             : { ok: false, message: `ปรับสำเร็จ ${ok} คน, ล้มเหลว ${failed} คน` };
     },

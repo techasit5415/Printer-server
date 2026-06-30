@@ -11,7 +11,7 @@
 	} from "@lucide/svelte";
 
 	let user = $derived(page.data.user);
-	const isAdmin = $derived(user?.role === "admin");
+	const isAdmin = $derived(user?.role === "superadmin");
 
 	const links = $derived([
 		...(user && !isAdmin
