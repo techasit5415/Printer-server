@@ -119,11 +119,14 @@ export async function checkPrintJobsStatus(): Promise<void> {
 		// Fetch active jobs and history detailed blocks from CUPS
 		let activeOutput = '';
 		let allOutput = '';
+		let printerStatusOutput = '';
 		try {
 			const { stdout: activeOut } = await execAsync('lpstat -o', { shell: '/bin/bash' });
 			activeOutput = activeOut;
 			const { stdout: allOut } = await execAsync('lpstat -l -W all -o', { shell: '/bin/bash' });
 			allOutput = allOut;
+			const { stdout: printerOut } = await execAsync('lpstat -p', { shell: '/bin/bash' });
+			printerStatusOutput = printerOut;
 		} catch (err) {
 			console.error('[Monitor] lpstat is not available. CUPS might be offline. Please contact Bornzi.', err);
 			return;
@@ -133,11 +136,11 @@ export async function checkPrintJobsStatus(): Promise<void> {
 		const allBlocks = allOutput.split(/^(?=[A-Za-z0-9])/m).filter(Boolean);
 
 		for (const job of activeJobs) {
-			if (job.cups_job_id === null) {
+			if (job.cups_job_id === null || job.cups_job_id <= 0) {
 				continue;
 			}
 			const jobIdentifier = `${job.printer_name}-${job.cups_job_id}`;
-			const isActive = activeOutput.includes(jobIdentifier);
+			const isActive = activeOutput.includes(jobIdentifier) || printerStatusOutput.includes(jobIdentifier);
 
 			if (isActive) {
 				// The job is still in the active queue
@@ -248,8 +251,26 @@ export async function checkPrintJobsStatus(): Promise<void> {
 					const ageMs = Date.now() - new Date(job.created).getTime();
 					if (ageMs > MISSING_JOB_AGE_MS) {
 						inactiveTimestamps.delete(job.id);
-						console.log(`[Monitor] Job ${job.id} (CUPS #${job.cups_job_id}) is missing from lpstat and is ${Math.round(ageMs / 1000)}s old. Assuming completed.`);
-						await updateJobStatus(pb, job, 'completed');
+						console.log(`[Monitor] Job ${job.id} (CUPS #${job.cups_job_id}) is missing from lpstat (age: ${Math.round(ageMs / 1000)}s). Verifying via page_log...`);
+						const { printed, isLogEnabled } = await getPrintedPages(job.cups_job_id);
+						if (isLogEnabled) {
+							const toRefund = Math.max(0, job.pages - printed);
+							if (printed > 0) {
+								await updateJobStatus(
+									pb,
+									job,
+									'completed',
+									undefined,
+									toRefund,
+									printed
+								);
+							} else {
+								await updateJobStatus(pb, job, 'failed', 'Job disappeared from CUPS without printing pages');
+							}
+						} else {
+							// Fallback if log is disabled
+							await updateJobStatus(pb, job, 'completed');
+						}
 					} else {
 						console.log(`[Monitor] Job ${job.id} (CUPS #${job.cups_job_id}) is brand new (${Math.round(ageMs / 1000)}s old) and not yet listed. Waiting...`);
 					}
