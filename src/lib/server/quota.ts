@@ -63,7 +63,7 @@ async function getDefaultPackage(pb: AppPocketBase): Promise<TotalQuotaPackage> 
  */
 export async function getQuota(pb: AppPocketBase, userId: string): Promise<QuotaSnapshot> {
     try {
-        const row = await pb.collection('Quota').getFirstListItem<QuotaRow>(`relation="${userId}"`, {
+        const row = await pb.collection('Quota').getFirstListItem<QuotaRow>(`user="${userId}"`, {
             expand: 'Total_Quota' // ขยาย Relation
         });
         return calculateSnapshot(row);
@@ -73,7 +73,7 @@ export async function getQuota(pb: AppPocketBase, userId: string): Promise<Quota
             const adminPb = await getAdminClient();
             const defaultPkg = await getDefaultPackage(pb);
             const newRow = await adminPb.collection('Quota').create<QuotaRow>({
-                relation: [userId],
+                user: [userId],
                 Total_Quota: [defaultPkg.id],
                 Add_Quota: 0,
                 Use: 0
@@ -96,9 +96,9 @@ export async function listAllQuotas(pb: AppPocketBase): Promise<Map<string, User
 
     const out = new Map<string, UserQuotaRow>();
     for (const r of rows) {
-        if (!r.relation) continue;
+        if (!r.user) continue;
         const snap = calculateSnapshot(r);
-        out.set(r.relation, { userId: r.relation, ...snap });
+        out.set(r.user, { userId: r.user, ...snap });
     }
     return out;
 }
@@ -112,7 +112,7 @@ export async function deductQuota(pb: AppPocketBase, userId: string, pages: numb
     try {
         let row: QuotaRow;
         try {
-            row = await pb.collection('Quota').getFirstListItem<QuotaRow>(`relation="${userId}"`, {
+            row = await pb.collection('Quota').getFirstListItem<QuotaRow>(`user="${userId}"`, {
                 expand: 'Total_Quota'
             });
         } catch {
@@ -120,7 +120,7 @@ export async function deductQuota(pb: AppPocketBase, userId: string, pages: numb
             const adminPb = await getAdminClient();
             const defaultPkg = await getDefaultPackage(pb);
             row = await adminPb.collection('Quota').create<QuotaRow>({
-                relation: [userId],
+                user: [userId],
                 Total_Quota: [defaultPkg.id],
                 Add_Quota: 0,
                 Use: 0
@@ -149,7 +149,7 @@ export async function deductQuota(pb: AppPocketBase, userId: string, pages: numb
 export async function refundQuota(pb: AppPocketBase, userId: string, pages: number): Promise<QuotaSnapshot> {
     if (pages <= 0) return getQuota(pb, userId);
     try {
-        const row = await pb.collection('Quota').getFirstListItem<QuotaRow>(`relation="${userId}"`, { expand: 'Total_Quota' });
+        const row = await pb.collection('Quota').getFirstListItem<QuotaRow>(`user="${userId}"`, { expand: 'Total_Quota' });
         const updatedRow = await pb.collection('Quota').update<QuotaRow>(row.id, {
             Use: Math.max(0, row.Use - pages)
         }, { expand: 'Total_Quota' });
@@ -166,7 +166,7 @@ export async function adjustRemaining(pb: AppPocketBase, userId: string, delta: 
     if (!Number.isFinite(delta) || delta === 0) return getQuota(pb, userId);
 
     try {
-        const row = await pb.collection('Quota').getFirstListItem<QuotaRow>(`relation="${userId}"`, { expand: 'Total_Quota' });
+        const row = await pb.collection('Quota').getFirstListItem<QuotaRow>(`user="${userId}"`, { expand: 'Total_Quota' });
 
         // อัปเดตตัวเลขเข้าฟิลด์ Add_Quota
         const updatedRow = await pb.collection('Quota').update<QuotaRow>(row.id, {
@@ -179,7 +179,7 @@ export async function adjustRemaining(pb: AppPocketBase, userId: string, delta: 
         const defaultPkg = await getDefaultPackage(pb);
         const newRow = await pb.collection('Quota').create<QuotaRow>({
             // ⚡ ใส่ก้ามปูครอบให้กลายเป็น Array
-            relation: [userId],
+            user: [userId],
             Total_Quota: [defaultPkg.id],
             Add_Quota: delta > 0 ? delta : 0,
             Use: 0
@@ -194,7 +194,7 @@ export async function adjustRemaining(pb: AppPocketBase, userId: string, delta: 
  */
 export async function resetToDefault(pb: AppPocketBase, userId: string): Promise<QuotaSnapshot> {
     try {
-        const row = await pb.collection('Quota').getFirstListItem<QuotaRow>(`relation="${userId}"`, { expand: 'Total_Quota' });
+        const row = await pb.collection('Quota').getFirstListItem<QuotaRow>(`user="${userId}"`, { expand: 'Total_Quota' });
 
         // ล้างยอด Use เป็น 0 และล้างโบนัส Add_Quota ส่วนตัวเป็น 0
         const updatedRow = await pb.collection('Quota').update<QuotaRow>(row.id, {
@@ -207,7 +207,7 @@ export async function resetToDefault(pb: AppPocketBase, userId: string): Promise
         const defaultPkg = await getDefaultPackage(pb);
         const newRow = await pb.collection('Quota').create<QuotaRow>({
             // ⚡ ใส่ก้ามปูครอบเหมือนกัน
-            relation: [userId],
+            user: [userId],
             Total_Quota: [defaultPkg.id],
             Add_Quota: 0,
             Use: 0
