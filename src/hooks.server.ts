@@ -44,7 +44,11 @@ function resolveRole(record: UserRecord): UserRole {
     // record lives at `record.expand.user_type`.
     const expanded = record.expand?.user_type;
     const typeName = expanded?.type ?? null;
-    if (typeName && typeName.toLowerCase() === 'admin') return 'admin';
+    if (typeName) {
+        const lower = typeName.toLowerCase();
+        if (lower === 'superadmin') return 'superadmin';
+        if (lower === 'admin') return 'admin';
+    }
     return 'user';
 }
 

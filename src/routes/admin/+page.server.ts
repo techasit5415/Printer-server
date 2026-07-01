@@ -93,7 +93,7 @@ export const actions: Actions = {
     },
 
     resetQuota: async ({ request, locals }) => {
-        if (!locals.user || locals.user.role !== 'admin') throw error(403, 'Forbidden');
+        if (!locals.user || locals.user.role !== 'superadmin') throw error(403, 'Forbidden');
 
         const data = await request.formData();
         const userId = String(data.get('userId') ?? '');
@@ -120,7 +120,7 @@ export const actions: Actions = {
     },
 
     bulkAdjustQuota: async ({ request, locals }) => {
-        if (!locals.user || locals.user.role !== 'admin') throw error(403, 'Forbidden');
+        if (!locals.user || locals.user.role !== 'superadmin') throw error(403, 'Forbidden');
 
         const data = await request.formData();
         const userIds = data.getAll('userIds').map((v) => String(v)).filter(Boolean);
@@ -144,7 +144,7 @@ export const actions: Actions = {
     },
 
     bulkResetQuota: async ({ request, locals }) => {
-        if (!locals.user || locals.user.role !== 'admin') throw error(403, 'Forbidden');
+        if (!locals.user || locals.user.role !== 'superadmin') throw error(403, 'Forbidden');
 
         const data = await request.formData();
         const userIds = data.getAll('userIds').map((v) => String(v)).filter(Boolean);
@@ -166,7 +166,7 @@ export const actions: Actions = {
     },
 
     suspend: async ({ request, locals }) => {
-        if (!locals.user || locals.user.role !== 'admin') throw error(403, 'Forbidden');
+        if (!locals.user || locals.user.role !== 'superadmin') throw error(403, 'Forbidden');
 
         const data = await request.formData();
         const jobId = String(data.get('jobId') ?? '');
@@ -200,7 +200,7 @@ export const actions: Actions = {
     },
 
     remove: async ({ request, locals }) => {
-        if (!locals.user || locals.user.role !== 'admin') throw error(403, 'Forbidden');
+        if (!locals.user || locals.user.role !== 'superadmin') throw error(403, 'Forbidden');
 
         const data = await request.formData();
         const jobId = String(data.get('jobId') ?? '');
