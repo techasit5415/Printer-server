@@ -120,6 +120,7 @@ export const handle: Handle = async ({ event, resolve }) => {
                 name: full.name ?? full.username,
                 username: full.username,
                 role: resolveRole(full),
+                user_type_id: full.user_type ?? null,
                 token: pb.authStore.token,
 
                 quota: {

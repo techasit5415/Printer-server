@@ -77,19 +77,29 @@
 					โควต้าคงเหลือ (Quota Remaining)
 				</p>
 				<p class="mt-1 text-2xl font-semibold text-fg-app">
-					<span
-						class={data.quota.remaining <= 0
-							? "text-danger"
-							: "text-accent"}
-					>
-						{data.quota.remaining}
-					</span>
-					<span class="text-base font-normal text-muted-app"
-						>/ {data.quota.total} หน้า</span
-					>
+					{#if ['000000000000002', '000000000000009'].includes(data.user?.user_type_id ?? '')}
+						<span class="text-accent">ไม่จำกัด (Unlimited)</span>
+					{:else}
+						<span
+							class={data.quota.remaining <= 0
+								? "text-danger"
+								: "text-accent"}
+						>
+							{data.quota.remaining}
+						</span>
+						<span class="text-base font-normal text-muted-app"
+							>/ {data.quota.total} หน้า</span
+						>
+					{/if}
 				</p>
 			</div>
-			{#if data.quota.total > 0}
+			{#if ['000000000000002', '000000000000009'].includes(data.user?.user_type_id ?? '')}
+				<div class="hidden flex-1 sm:block text-right">
+					<p class="text-xs text-muted-app">
+						ใช้ไปแล้วทั้งหมด {data.quota.used} หน้า
+					</p>
+				</div>
+			{:else if data.quota.total > 0}
 				<div class="hidden flex-1 sm:block">
 					<QuotaBar used={data.quota.used} total={data.quota.total} />
 					<p class="mt-1 text-right text-xs text-muted-app">

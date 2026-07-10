@@ -100,7 +100,7 @@
 			<input
 				type="search"
 				bind:value={query}
-				placeholder="ค้นหาด้วยชื่อพนักงาน, ID หรือแผนก..."
+				placeholder="ค้นหาด้วยชื่อ, อีเมล ..."
 				class="w-full rounded-md border border-app bg-elevated py-2 pl-10 pr-3 text-sm text-fg-app placeholder:text-muted-app transition-colors focus:border-accent focus:bg-surface focus:outline-none focus:ring-2 focus:ring-accent/40"
 			/>
 		</div>
@@ -205,11 +205,17 @@
 							class="h-4 w-4 rounded border-strong-app text-accent focus:ring-accent/40"
 						/>
 					</th>
-					<th class="px-6 py-3 text-left font-medium">พนักงาน (User)</th>
+					<th class="px-6 py-3 text-left font-medium"
+						>พนักงาน (User)</th
+					>
 					<th class="px-6 py-3 text-left font-medium"> ยศ</th>
 					<th class="px-6 py-3 text-left font-medium">สิทธิ์หลัก</th>
-					<th class="px-6 py-3 text-left font-medium">โควต้าที่ใช้ไป</th>
-					<th class="px-6 py-3 text-left font-medium">เครื่องมือจัดการโควต้า</th>
+					<th class="px-6 py-3 text-left font-medium"
+						>โควต้าที่ใช้ไป</th
+					>
+					<th class="px-6 py-3 text-left font-medium"
+						>เครื่องมือจัดการโควต้า</th
+					>
 				</tr>
 			</thead>
 			<tbody class="divide-y divide-app">
@@ -220,7 +226,8 @@
 							<input
 								type="checkbox"
 								checked={selectedIds.has(u.id)}
-								onchange={(e) => toggleOne(u.id, e.currentTarget.checked)}
+								onchange={(e) =>
+									toggleOne(u.id, e.currentTarget.checked)}
 								aria-label={`เลือก ${u.name ?? u.email}`}
 								class="h-4 w-4 rounded border-strong-app text-accent focus:ring-accent/40"
 							/>
@@ -233,29 +240,47 @@
 								class="mt-0.5 font-mono text-xs text-muted-app"
 								title="PocketBase ID: {u.id}"
 							>
-								{#if u.username}
-									ID: {u.username} <span class="text-[10px] opacity-60">({u.id})</span>
-								{:else}
-									ID: {u.id}
-								{/if}
+								{u.email}
 							</div>
 						</td>
 						<td class="px-6 py-4 text-secondary-app">
 							{u.expand?.user_type?.type ?? "—"}
 						</td>
 						<td class="px-6 py-4 text-secondary-app">
-							{quota.tierTotal} หน้า / เทอม
+							{#if ["000000000000002", "000000000000009"].includes(u.expand?.user_type?.id ?? "")}
+								ไม่จำกัด
+							{:else}
+								{quota.tierTotal} หน้า / เทอม
+							{/if}
 						</td>
 						<td class="px-6 py-4">
-							<div class="text-sm font-medium text-fg-app">
-								<span class={quota.remaining <= 0 ? "text-danger" : ""}>
-									{quota.used}
-								</span>
-								<span class="text-muted-app"> / {quota.total} หน้า</span>
-							</div>
-							<div class="mt-1.5 w-40">
-								<QuotaBar used={quota.used} total={quota.total} />
-							</div>
+							{#if ["000000000000002", "000000000000009"].includes(u.expand?.user_type?.id ?? "")}
+								<div class="text-sm font-medium text-fg-app">
+									<span class="text-accent">ไม่จำกัด</span>
+									<span class="text-muted-app">
+										(ใช้ไป {quota.used} หน้า)</span
+									>
+								</div>
+							{:else}
+								<div class="text-sm font-medium text-fg-app">
+									<span
+										class={quota.remaining <= 0
+											? "text-danger"
+											: ""}
+									>
+										{quota.used}
+									</span>
+									<span class="text-muted-app">
+										/ {quota.total} หน้า</span
+									>
+								</div>
+								<div class="mt-1.5 w-40">
+									<QuotaBar
+										used={quota.used}
+										total={quota.total}
+									/>
+								</div>
+							{/if}
 						</td>
 						<td class="px-6 py-4">
 							<div class="flex items-center gap-2">
@@ -265,7 +290,11 @@
 									use:enhance
 									class="flex items-center gap-1"
 								>
-									<input type="hidden" name="userId" value={u.id} />
+									<input
+										type="hidden"
+										name="userId"
+										value={u.id}
+									/>
 									<div class="relative">
 										<Plus
 											class="pointer-events-none absolute left-1.5 top-1/2 h-3 w-3 -translate-y-1/2 text-muted-app"
@@ -281,13 +310,29 @@
 											class="w-22 rounded-md border border-app bg-surface py-2 pl-6 pr-2 text-xs font-mono text-fg-app placeholder:text-muted-app focus:border-accent focus:outline-none focus:ring-2 focus:ring-accent/40"
 										/>
 									</div>
-									<Button variant="primary" size="sm" type="submit">
+									<Button
+										variant="primary"
+										size="sm"
+										type="submit"
+									>
 										เพิ่ม
 									</Button>
 								</form>
-								<form method="POST" action="?/resetQuota" use:enhance>
-									<input type="hidden" name="userId" value={u.id} />
-									<Button variant="secondary" size="sm" type="submit">
+								<form
+									method="POST"
+									action="?/resetQuota"
+									use:enhance
+								>
+									<input
+										type="hidden"
+										name="userId"
+										value={u.id}
+									/>
+									<Button
+										variant="secondary"
+										size="sm"
+										type="submit"
+									>
 										<RefreshCw class="h-3 w-3" />
 										รีเซ็ต
 									</Button>

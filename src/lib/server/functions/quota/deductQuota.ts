@@ -5,7 +5,12 @@ import { getDefaultPackage } from './getDefaultPackage';
 import type { QuotaRow, QuotaSnapshot } from './types';
 import { getQuota } from './getQuota';
 
-export async function deductQuota(pb: AppPocketBase, userId: string, pages: number): Promise<QuotaSnapshot | null> {
+export async function deductQuota(
+	pb: AppPocketBase,
+	userId: string,
+	pages: number,
+	userTypeId?: string | null
+): Promise<QuotaSnapshot | null> {
 	if (pages <= 0) return getQuota(pb, userId);
 
 	try {
@@ -27,7 +32,7 @@ export async function deductQuota(pb: AppPocketBase, userId: string, pages: numb
 		}
 
 		const snap = calculateSnapshot(row);
-		if (snap.remaining < pages) return null; // โควต้าไม่พอ
+		if (snap.remaining < pages && userTypeId !== '000000000000002' && userTypeId !== '000000000000009') return null; // โควต้าไม่พอ (ยกเว้นอาจารย์)
 
 		// อัปเดตยอดใช้ไป
 		const adminPb = await getAdminClient();

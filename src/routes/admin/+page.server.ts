@@ -8,6 +8,8 @@ import { refundQuota } from '$lib/server/functions/quota/refundQuota';
 import { clearSession } from '$lib/server/functions/session/clearSession';
 import { cancelPrintJob } from '$lib/server/functions/print/cancelPrintJob';
 
+import { getAdminClient } from '$lib/server/functions/pocketbase/getAdminClient';
+
 /**
  * ปรับลำดับคิวพิมพ์ในระบบ
  */
@@ -34,9 +36,10 @@ export const load: PageServerLoad = async ({ locals }) => {
 
     // ⚡ ดึง pb client ประจำ Request ตัวเองมาใช้เลย (สิทธิ์ Admin ตาราง users ทำงานได้ทันทีผ่าน API Rules)
     const pb = locals.pb;
+    const adminPb = await getAdminClient();
 
     const [users, jobsResult, quotasByUser] = await Promise.all([
-        pb.collection('users').getFullList<UsersRecord>({
+        adminPb.collection('users').getFullList<UsersRecord>({
             sort: 'name',
             expand: 'user_type'
         }),

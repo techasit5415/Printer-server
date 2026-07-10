@@ -198,7 +198,7 @@ export const actions: Actions = {
 			const totalPages = printedPagesPerCopy * copies;
 
 			// Reserve the quota based on the actual pages
-			const reservation = await deductQuota(pb, locals.user.id, totalPages);
+			const reservation = await deductQuota(pb, locals.user.id, totalPages, locals.user.user_type_id);
 			if (!reservation) {
 				throw new Error('INSUFFICIENT_QUOTA');
 			}
