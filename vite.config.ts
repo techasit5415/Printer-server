@@ -16,8 +16,7 @@ export default defineConfig({
     adapter: adapter({
         bodySizeLimit: 100 * 1024 * 1024 // 100MB
     }),
-    // บังคับปิด sourcemap สำหรับฝั่ง client และ server ตอน build
     build: {
-        sourcemap: false
+        sourcemap: false // ปิด sourcemap อย่างสมบูรณ์
     }
 });
