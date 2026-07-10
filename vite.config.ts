@@ -5,13 +5,9 @@ import { defineConfig } from 'vite';
 export default defineConfig({
     plugins: [
         tailwindcss(),
-        sveltekit({
-            compilerOptions: {
-                runes: ({ filename }) => filename.split(/[/\\]/).includes('node_modules') ? undefined : true
-            }
-        })
+        sveltekit() // ห้ามส่งออปชันเข้าไปในนี้ เพื่อให้ยอมอ่าน svelte.config.js
     ],
     build: {
-        sourcemap: false // ปิด sourcemap บน client/server อย่างสมบูรณ์
+        sourcemap: false // ยึดมั่นปิดช่องโหว่ซอร์สโค้ดหลุดไว้ตรงนี้
     }
 });

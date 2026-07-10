@@ -5,10 +5,14 @@ import { vitePreprocess } from '@sveltejs/vite-plugin-svelte';
 const config = {
     preprocess: vitePreprocess(),
 
+    compilerOptions: {
+        // ย้าย runes mode จาก vite.config.ts มาไว้ตรงนี้
+        runes: ({ filename }) => filename.split(/[/\\]/).includes('node_modules') ? undefined : true
+    },
+
     kit: {
-        // ย้าย adapter และ bodySizeLimit มาไว้ตรงนี้ให้ถูกต้องตามมาตรฐาน SvelteKit
         adapter: adapter({
-            bodySizeLimit: 100 * 1024 * 1024 // 100MB
+            bodySizeLimit: 104857600 // 100MB
         })
     }
 };
