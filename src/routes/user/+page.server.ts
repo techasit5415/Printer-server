@@ -57,10 +57,9 @@ const AVG_MINUTES_PER_QUEUE_SLOT = 2;
 
 export const load: PageServerLoad = async ({ locals }) => {
 	if (!locals.user) throw redirect(303, '/login');
-	// Admins are allowed to land on this page too (e.g. to test the
-	// personal print flow from the user perspective). We still scope
-	// every query to `locals.user.id` below, so they only ever see
-	// their own jobs/quota.
+	if (locals.user.role === 'user') {
+		throw error(403, 'นักศึกษาไม่ได้รับอนุญาตให้ใช้งานระบบนี้');
+	}
 
 	const pb = createPocketBaseClient();
 	pb.authStore.save(locals.user.token);
@@ -104,6 +103,7 @@ export const load: PageServerLoad = async ({ locals }) => {
 export const actions: Actions = {
 	print: async ({ request, locals }) => {
 		if (!locals.user) throw error(401, 'Unauthorized');
+		if (locals.user.role === 'user') throw error(403, 'Forbidden');
 
 		const data = await request.formData();
 		const file = data.get('file');
@@ -321,6 +321,7 @@ export const actions: Actions = {
 
 	cancel: async ({ request, locals }) => {
 		if (!locals.user) throw error(401, 'Unauthorized');
+		if (locals.user.role === 'user') throw error(403, 'Forbidden');
 
 		const data = await request.formData();
 		const jobId = String(data.get('jobId') ?? '');

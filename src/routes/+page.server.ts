@@ -1,4 +1,4 @@
-import { redirect } from '@sveltejs/kit';
+import { redirect, error } from '@sveltejs/kit';
 import type { PageServerLoad } from './$types';
 
 /**
@@ -7,5 +7,11 @@ import type { PageServerLoad } from './$types';
  */
 export const load: PageServerLoad = async ({ locals }) => {
 	if (!locals.user) throw redirect(303, '/login');
-	throw redirect(303, locals.user.role === 'superadmin' ? '/admin' : '/user');
+	if (locals.user.role === 'superadmin') {
+		throw redirect(303, '/admin');
+	} else if (locals.user.role === 'teachers' || locals.user.role === 'admin') {
+		throw redirect(303, '/user');
+	} else {
+		throw error(403, 'นักศึกษาไม่ได้รับอนุญาตให้ใช้งานระบบนี้');
+	}
 };
