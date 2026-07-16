@@ -121,7 +121,10 @@
 					const result = {
 						type: "failure",
 						status: xhr.status,
-						data: { ok: false, message: `เกิดข้อผิดพลาดในการส่งไฟล์ (${xhr.status})` }
+						data: {
+							ok: false,
+							message: `เกิดข้อผิดพลาดในการส่งไฟล์ (${xhr.status})`,
+						},
 					} as any;
 					await applyAction(result);
 				}
@@ -130,7 +133,10 @@
 				const result = {
 					type: "failure",
 					status: 500,
-					data: { ok: false, message: "การประมวลผลลัพธ์จากเซิร์ฟเวอร์ล้มเหลว" }
+					data: {
+						ok: false,
+						message: "การประมวลผลลัพธ์จากเซิร์ฟเวอร์ล้มเหลว",
+					},
 				} as any;
 				await applyAction(result);
 			} finally {
@@ -147,7 +153,11 @@
 			const result = {
 				type: "failure",
 				status: 500,
-				data: { ok: false, message: "เครือข่ายขัดข้อง กรุณาตรวจสอบการเชื่อมต่ออินเทอร์เน็ต" }
+				data: {
+					ok: false,
+					message:
+						"เครือข่ายขัดข้อง กรุณาตรวจสอบการเชื่อมต่ออินเทอร์เน็ต",
+				},
 			} as any;
 			await applyAction(result);
 		};
@@ -268,7 +278,8 @@
 							<div
 								class="flex h-16 w-12 items-center justify-center border border-strong-app bg-surface"
 							>
-								<span class="text-[10px] text-muted-app">1</span>
+								<span class="text-[10px] text-muted-app">1</span
+								>
 							</div>
 							<div class="flex items-center gap-1.5">
 								{#if oneUpActive}
@@ -376,9 +387,7 @@
 
 				<!-- Colour mode (colour / mono) -->
 				<div class="mt-5">
-					<p class="text-sm text-fg-app">
-						สี แต่ก็ปริ้นได้แค่ขาวดำเหมือนเดิมนั้นแหละมีให้ดีใจเล่น
-					</p>
+					<p class="text-sm text-fg-app">สี</p>
 					<div class="mt-2 grid grid-cols-2 gap-2">
 						<button
 							type="button"
@@ -392,14 +401,16 @@
 						>
 							<div class="flex gap-0.5">
 								<div class="h-3 w-2 rounded-sm bg-danger"></div>
-								<div class="h-3 w-2 rounded-sm bg-warning"></div>
+								<div
+									class="h-3 w-2 rounded-sm bg-warning"
+								></div>
 								<div class="h-3 w-2 rounded-sm bg-accent"></div>
-								<div class="h-3 w-2 rounded-sm bg-success"></div>
+								<div
+									class="h-3 w-2 rounded-sm bg-success"
+								></div>
 							</div>
 							<span class="text-xs">สี </span>
-							<span class="text-xs text-red-700">
-								(แต่ก็ปริ้นได้แค่ขาวดำเหมือนเดิมนั้นแหละมีให้ดีใจเล่น)
-							</span>
+							<span class="text-xs text-red-700"> </span>
 						</button>
 						<button
 							type="button"
@@ -454,30 +465,47 @@
 				<!-- Confirm + cancel row -->
 				{#if submitting}
 					<div class="mt-6 border-t border-strong-app pt-5">
-						<div class="flex items-center justify-between text-xs mb-2">
-							<span class="font-medium text-fg-app flex items-center gap-2">
+						<div
+							class="flex items-center justify-between text-xs mb-2"
+						>
+							<span
+								class="font-medium text-fg-app flex items-center gap-2"
+							>
 								{#if isProcessing}
 									<span class="relative flex h-2 w-2">
-										<span class="animate-ping absolute inline-flex h-full w-full rounded-full bg-accent opacity-75"></span>
-										<span class="relative inline-flex rounded-full h-2 w-2 bg-accent"></span>
+										<span
+											class="animate-ping absolute inline-flex h-full w-full rounded-full bg-accent opacity-75"
+										></span>
+										<span
+											class="relative inline-flex rounded-full h-2 w-2 bg-accent"
+										></span>
 									</span>
 									กำลังประมวลผลไฟล์และจัดทำคิวพิมพ์...
 								{:else}
-									<Upload class="h-3.5 w-3.5 animate-bounce text-accent" />
+									<Upload
+										class="h-3.5 w-3.5 animate-bounce text-accent"
+									/>
 									กำลังอัปโหลดไฟล์...
 								{/if}
 							</span>
-							<span class="font-mono text-muted-app">{uploadProgress}%</span>
+							<span class="font-mono text-muted-app"
+								>{uploadProgress}%</span
+							>
 						</div>
-						<div class="w-full overflow-hidden rounded-full bg-elevated h-2">
+						<div
+							class="w-full overflow-hidden rounded-full bg-elevated h-2"
+						>
 							<div
 								class="h-full rounded-full bg-accent transition-all duration-300 ease-out shadow-[0_0_8px_rgba(37,99,235,0.4)]"
 								style="width: {uploadProgress}%"
 							></div>
 						</div>
-						<p class="mt-2 text-center text-xs text-muted-app animate-pulse">
+						<p
+							class="mt-2 text-center text-xs text-muted-app animate-pulse"
+						>
 							{#if isProcessing}
-								กรุณารอสักครู่ ระบบกำลังคำนวณจำนวนหน้าและส่งเข้าเครื่องพิมพ์
+								กรุณารอสักครู่
+								ระบบกำลังคำนวณจำนวนหน้าและส่งเข้าเครื่องพิมพ์
 							{:else}
 								อย่าเพิ่งปิดหน้าต่างนี้จนกว่าการอัปโหลดจะเสร็จสิ้น
 							{/if}
