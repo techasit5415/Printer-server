@@ -10,10 +10,7 @@
 
 import { AUTH_COOKIE } from '../constants';
 
-const PB_URL = import.meta.env.VITE_POCKETBASE_URL;
-if (!PB_URL) {
-	throw new Error('VITE_POCKETBASE_URL is not set in .env');
-}
+const PB_URL = '/api/db';
 
 // Minimal structural types — enough for the calls we make on the
 // client (authWithPassword, authWithOAuth2, collection().subscribe).

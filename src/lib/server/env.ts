@@ -12,6 +12,7 @@ import path from 'node:path';
 interface ServerEnv {
 	pocketbaseUrl: string;
 	printerName: string;
+	teacherPrinterName: string;
 	tempDir: string;
 	defaultQuotaPages: number;
 	gracePeriodMs: number;
@@ -21,6 +22,7 @@ interface ServerEnv {
 function readEnv(): ServerEnv {
 	const pocketbaseUrl = env.PRIVATE_POCKETBASE_URL;
 	const printerName = env.PRIVATE_PRINTER_NAME;
+	const teacherPrinterName = env.PRIVATE_TEACHER_PRINTER_NAME || printerName;
 	const tempDir = env.PRIVATE_TEMP_DIR;
 	const defaultQuotaPages = env.PRIVATE_DEFAULT_QUOTA_PAGES;
 	const gracePeriodRaw = env.PRIVATE_GRACE_PERIOD_MS;
@@ -47,6 +49,7 @@ function readEnv(): ServerEnv {
 	return {
 		pocketbaseUrl: pocketbaseUrl.replace(/\/+$/, ''),
 		printerName,
+		teacherPrinterName,
 		tempDir: resolvedTempDir,
 		defaultQuotaPages:
 			defaultQuotaPages && Number.isFinite(Number(defaultQuotaPages))

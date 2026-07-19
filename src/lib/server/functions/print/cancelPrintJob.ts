@@ -11,9 +11,9 @@ function sanitise(value: string, maxLen = 128): string {
 	return cleaned;
 }
 
-export async function cancelPrintJob(cupsJobId: number): Promise<void> {
+export async function cancelPrintJob(cupsJobId: number, printerName?: string): Promise<void> {
 	try {
-		const printer = sanitise(serverEnv.printerName, 64);
+		const printer = sanitise(printerName ?? serverEnv.printerName, 64);
 		const cmd = `cancel '${printer}-${cupsJobId}'`;
 		await execAsync(cmd, { shell: '/bin/bash' });
 		console.log(`[Print] Canceled CUPS job ${printer}-${cupsJobId}`);

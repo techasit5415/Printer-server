@@ -20,6 +20,21 @@
 	// Local search state for the user-quotas table — client-side filter
 	let query = $state("");
 
+	// Sorting state
+	type SortKey = "user" | "role";
+	type SortOrder = "asc" | "desc";
+	let sortKey = $state<SortKey>("user");
+	let sortOrder = $state<SortOrder>("asc");
+
+	function setSort(key: SortKey) {
+		if (sortKey === key) {
+			sortOrder = sortOrder === "asc" ? "desc" : "asc";
+		} else {
+			sortKey = key;
+			sortOrder = "asc";
+		}
+	}
+
 	// Bulk-selection state for the user-quotas table.
 	let selectedIds = $state(new Set<string>());
 
@@ -68,17 +83,38 @@
 
 	let filteredUsers = $derived.by(() => {
 		const q = query.trim().toLowerCase();
-		if (!q) return users;
-		return users.filter((u) => {
-			return (
-				(u.name ?? "").toLowerCase().includes(q) ||
-				u.email.toLowerCase().includes(q) ||
-				(u.role ?? "").toLowerCase().includes(q) ||
-				u.id.toLowerCase().includes(q) ||
-				(u.username ?? "").toLowerCase().includes(q) ||
-				(u.expand?.user_type?.type ?? "").toLowerCase().includes(q)
-			);
+		let result = q
+			? users.filter((u) => {
+					return (
+						(u.name ?? "").toLowerCase().includes(q) ||
+						u.email.toLowerCase().includes(q) ||
+						(u.role ?? "").toLowerCase().includes(q) ||
+						u.id.toLowerCase().includes(q) ||
+						(u.username ?? "").toLowerCase().includes(q) ||
+						(u.expand?.user_type?.type ?? "").toLowerCase().includes(q)
+					);
+			  })
+			: [...users];
+
+		// Sort client-side
+		result.sort((a, b) => {
+			let valA = "";
+			let valB = "";
+
+			if (sortKey === "user") {
+				valA = a.email.toLowerCase();
+				valB = b.email.toLowerCase();
+			} else if (sortKey === "role") {
+				valA = (a.expand?.user_type?.type ?? "").toLowerCase();
+				valB = (b.expand?.user_type?.type ?? "").toLowerCase();
+			}
+
+			if (valA < valB) return sortOrder === "asc" ? -1 : 1;
+			if (valA > valB) return sortOrder === "asc" ? 1 : -1;
+			return 0;
 		});
+
+		return result;
 	});
 </script>
 
@@ -205,10 +241,30 @@
 							class="h-4 w-4 rounded border-strong-app text-accent focus:ring-accent/40"
 						/>
 					</th>
-					<th class="px-6 py-3 text-left font-medium"
-						>พนักงาน (User)</th
-					>
-					<th class="px-6 py-3 text-left font-medium"> ยศ</th>
+					<th class="px-6 py-3 text-left font-medium">
+						<button
+							type="button"
+							onclick={() => setSort("user")}
+							class="flex items-center gap-1 hover:text-fg-app font-medium"
+						>
+							พนักงาน (อีเมล)
+							{#if sortKey === "user"}
+								<span class="text-xs">{sortOrder === "asc" ? "▲" : "▼"}</span>
+							{/if}
+						</button>
+					</th>
+					<th class="px-6 py-3 text-left font-medium">
+						<button
+							type="button"
+							onclick={() => setSort("role")}
+							class="flex items-center gap-1 hover:text-fg-app font-medium"
+						>
+							ยศ
+							{#if sortKey === "role"}
+								<span class="text-xs">{sortOrder === "asc" ? "▲" : "▼"}</span>
+							{/if}
+						</button>
+					</th>
 					<th class="px-6 py-3 text-left font-medium">สิทธิ์หลัก</th>
 					<th class="px-6 py-3 text-left font-medium"
 						>โควต้าที่ใช้ไป</th

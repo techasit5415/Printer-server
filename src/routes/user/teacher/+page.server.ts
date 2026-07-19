@@ -21,10 +21,7 @@ import type { PageServerLoad } from './$types';
 const MAX_FILE_BYTES = 50 * 1024 * 1024; // 50 MiB hard cap (per the new UI copy)
 
 /**
- * Type guard for PocketBase SDK errors. `ClientResponseError` carries
- * the parsed response body under `response` (and `originalError`),
- * including the per-field validation map. We use it to surface the
- * exact field the schema rejected.
+ * Type guard for PocketBase SDK errors.
  */
 interface PBFieldErrors {
 	[key: string]: unknown;
@@ -41,6 +38,7 @@ function isClientResponseError(err: unknown): err is PBClientErrorShape {
 	const obj = err as { status?: unknown; response?: unknown };
 	return typeof obj.status === 'number' && obj.response !== undefined;
 }
+
 const ALLOWED_MIME = new Set([
 	'application/pdf',
 	'application/postscript',
@@ -50,21 +48,22 @@ const ALLOWED_MIME = new Set([
 ]);
 const ALLOWED_EXT = new Set(['.pdf', '.ps', '.jpg', '.jpeg', '.png', '.txt']);
 
-// Rough average wait per queued job, in minutes. The Fuji Xerox C3061
-// averages ~2 min/page, and the queue depth correlates with wait — this
-// drives the "รออีก N คิว (ประมาณ X นาที)" copy in the UI.
+// Rough average wait per queued job, in minutes.
 const AVG_MINUTES_PER_QUEUE_SLOT = 2;
 
 export const load: PageServerLoad = async ({ locals }) => {
 	if (!locals.user) throw redirect(303, '/login');
+	if (locals.user.role !== 'teachers' && locals.user.role !== 'superadmin' && locals.user.role !== 'admin') {
+		throw error(403, 'นักศึกษาไม่ได้รับอนุญาตให้ใช้งานระบบนี้');
+	}
 
 	const pb = createPocketBaseClient();
 	pb.authStore.save(locals.user.token);
 
 	const isUserAdmin = locals.user.role === 'superadmin' || locals.user.role === 'admin';
 	const filter = isUserAdmin
-		? `printer_name="${serverEnv.printerName}"`
-		: `user="${locals.user.id}" && printer_name="${serverEnv.printerName}"`;
+		? `printer_name="${serverEnv.teacherPrinterName}"`
+		: `user="${locals.user.id}" && printer_name="${serverEnv.teacherPrinterName}"`;
 
 	const [quota, jobsResult] = await Promise.all([
 		getQuota(pb, locals.user.id),
@@ -74,13 +73,12 @@ export const load: PageServerLoad = async ({ locals }) => {
 		})
 	]);
 
-	// Pull the full live queue (across all users) so we can compute
-	// "รออีก N คิว" for each of this user's pending jobs.
+	// Pull the full live queue (across all users) for the teacher's printer so we can compute queue wait.
 	const queueResult = await pb.collection('print_jobs').getList<PrintJobsRecord>(
 		1,
 		200,
 		{
-			filter: `printer_name="${serverEnv.printerName}" && (status="processing" || status="pending")`,
+			filter: `printer_name="${serverEnv.teacherPrinterName}" && (status="processing" || status="pending")`,
 			sort: 'created',
 			fields: 'id,created,status,user'
 		}
@@ -105,6 +103,9 @@ export const load: PageServerLoad = async ({ locals }) => {
 export const actions: Actions = {
 	print: async ({ request, locals }) => {
 		if (!locals.user) throw error(401, 'Unauthorized');
+		if (locals.user.role !== 'teachers' && locals.user.role !== 'superadmin' && locals.user.role !== 'admin') {
+			throw error(403, 'Forbidden');
+		}
 
 		const data = await request.formData();
 		const file = data.get('file');
@@ -112,10 +113,13 @@ export const actions: Actions = {
 		const sidesRaw = data.get('sides');
 
 		if (!(file instanceof File) || file.size === 0) {
-			return { ok: false, message: 'กรุณาเลือกไฟล์ที่ต้องการพิมพ์' };
+			return { ok: false, message: 'กรุณาอัปโหลดไฟล์ที่ถูกต้อง' };
 		}
 		if (file.size > MAX_FILE_BYTES) {
-			return { ok: false, message: `ไฟล์มีขนาดเกิน ${MAX_FILE_BYTES / 1024 / 1024} MiB` };
+			return {
+				ok: false,
+				message: 'ขนาดไฟล์เกินขีดจำกัด 50 MB กรุณาเลือกไฟล์ที่เล็กลง'
+			};
 		}
 
 		const ext = path.extname(file.name).toLowerCase();
@@ -132,36 +136,23 @@ export const actions: Actions = {
 			sidesRawStr === 'two-sided-long-edge' || sidesRawStr === 'two-sided-short-edge'
 				? sidesRawStr
 				: 'one-sided';
-		// N-up layout (pages per sheet) — confirmed in the preview
-		// step before submit. Defaults to 1 (full-size pages).
+		
 		const nupRaw = Number.parseInt(String(data.get('pagesPerSheet') ?? '1'), 10);
 		const pagesPerSheet: 1 | 2 | 4 = nupRaw === 2 || nupRaw === 4 ? nupRaw : 1;
 
-		// Colour mode — defaults to colour. Mono prints B&W on a
-		// colour printer, saving toner/ink.
 		const colorRaw = String(data.get('color') ?? 'color');
 		const color: 'color' | 'mono' = colorRaw === 'mono' ? 'mono' : 'color';
 
 		const pb = createPocketBaseClient();
 		pb.authStore.save(locals.user.token);
 
-		// Force a fresh auth refresh so `pb.authStore.record` is
-		// populated before any create. PB's `user = @request.auth.id`
-		// rule internally joins back to the auth user record — if the
-		// client-side record is null (which `authStore.save({token})`
-		// leaves it), some rule-evaluation paths fall through to a
-		// `sql: no rows in result set` error. Refreshing ensures the
-		// SDK and server are in sync, and surfaces a 401 here if the
-		// token has gone stale.
 		try {
 			await pb.collection('users').authRefresh();
 		} catch (refreshErr) {
-			console.warn('[user/print] authRefresh failed (token may be stale):', refreshErr);
+			console.warn('[user/print/teacher] authRefresh failed:', refreshErr);
 			return { ok: false, message: 'เซสชันหมดอายุ กรุณา login ใหม่' };
 		}
 
-		// Make sure the temp dir exists, then stream the upload to disk
-		// in chunks — never load the whole buffer into RAM.
 		await mkdir(serverEnv.tempDir, { recursive: true });
 		const safeName = path
 			.basename(file.name)
@@ -173,8 +164,6 @@ export const actions: Actions = {
 		let chargedPages = 0;
 
 		try {
-			// Stream to disk via Web ReadableStream → Node WritableStream.
-			// This caps memory at ~64 KiB regardless of file size.
 			const nodeStream = await import('node:stream');
 			const { Readable } = nodeStream;
 			const writeStream = (await import('node:fs')).createWriteStream(tempPath, {
@@ -192,52 +181,36 @@ export const actions: Actions = {
 				writeStream.on('finish', () => resolve());
 			});
 
-			// Calculate actual page count
 			const actualPages = await getPageCountOfFile(tempPath, ext);
-			// Account for N-up (pages per sheet) layout
 			const printedPagesPerCopy = Math.ceil(actualPages / pagesPerSheet);
 			const totalPages = printedPagesPerCopy * copies;
 
-			// Reserve the quota based on the actual pages
 			const reservation = await deductQuota(pb, locals.user.id, totalPages, locals.user.user_type_id);
 			if (!reservation) {
 				throw new Error('INSUFFICIENT_QUOTA');
 			}
 			chargedPages = totalPages;
 
-			// Record the job in PB before touching CUPS — we want a
-			// durable audit trail even if the daemon is unreachable.
-			// `cups_job_id` and `error_message` are intentionally
-			// omitted from the create payload — they're populated by
-			// the update calls below (CUPS success / failure paths).
-			// Sending them as `null` was rejected by PB with a generic
-			// 400 because the schema marks them as required.
 			const jobPayload = {
 				user: locals.user.id,
 				filename: safeName,
 				status: 'pending',
 				pages: totalPages,
 				copies,
-				printer_name: serverEnv.printerName
+				printer_name: serverEnv.teacherPrinterName
 			};
-			// Diagnostic — PB's createRule `user = @request.auth.id`
-			// fails with "sql: no rows in result set" when the ids
-			// disagree (e.g. token bound to a deleted/renamed user).
-			// Log the payload + the auth record PB resolved from the
-			// token so a future regression is one grep away.
-			console.log('[user/print] create payload:', jobPayload);
-			console.log('[user/print] auth record:', pb.authStore.record);
+			console.log('[user/print/teacher] create payload:', jobPayload);
 			const created = await pb.collection('print_jobs').create<PrintJobsRecord>(jobPayload);
 			jobRecordId = created.id;
 
-			// Hand the file to CUPS. This is the point of no return.
 			const result = await submitPrintJob({
 				filePath: tempPath,
 				copies,
 				title: `${locals.user.email} — ${safeName}`,
 				sides,
 				pagesPerSheet,
-				color
+				color,
+				printerName: serverEnv.teacherPrinterName
 			});
 
 			await pb.collection('print_jobs').update<PrintJobsRecord>(created.id, {
@@ -247,7 +220,7 @@ export const actions: Actions = {
 
 			return {
 				ok: true,
-				message: `ส่งงานพิมพ์เข้าคิว CUPS เรียบร้อย (job #${result.jobId})`,
+				message: `ส่งงานพิมพ์เข้าคิวเครื่องพิมพ์อาจารย์เรียบร้อย (job #${result.jobId})`,
 				jobId: result.jobId,
 				quota: reservation
 			};
@@ -256,37 +229,22 @@ export const actions: Actions = {
 				return { ok: false, message: 'โควต้าคงเหลือไม่เพียงพอ' };
 			}
 
-			// Log the full error to the dev server console so the
-			// actual failure point (validation, mkdir, stream, PB
-			// create, CUPS submit) is debuggable. The user-facing
-			// `message` below carries the same err.message so it
-			// also appears in the UI.
-			console.error('[user/print] failed for', locals.user.id, err);
+			console.error('[user/print/teacher] failed for', locals.user.id, err);
 
-			// Surface PB field-level validation details when the SDK
-			// exposes them via `response.data`. The top-level
-			// `err.message` is just "Failed to create record." which
-			// is useless — the per-field map tells us which column
-			// actually failed (e.g. `{user: {"code":"validation_required"}}`).
 			const pbFieldErrors = isClientResponseError(err)
 				? err.response?.data
 				: undefined;
 			if (pbFieldErrors && Object.keys(pbFieldErrors).length > 0) {
-				console.error('[user/print] PB field errors:', pbFieldErrors);
+				console.error('[user/print/teacher] PB field errors:', pbFieldErrors);
 			}
 
-			// Try to refund the reservation and mark the job as failed.
-			// Capture the refund outcome so we can surface it in the UI
-			// — silently swallowed refund failures used to leave the
-			// user's quota "stuck" (deducted but not returned) after
-			// a failed print, with no signal that anything was wrong.
 			let refundOk = false;
 			if (chargedPages > 0) {
 				try {
 					await refundQuota(pb, locals.user.id, chargedPages);
 					refundOk = true;
 				} catch (refundErr) {
-					console.error('[user/print] refund failed:', refundErr);
+					console.error('[user/print/teacher] refund failed:', refundErr);
 				}
 			}
 			if (jobRecordId) {
@@ -300,9 +258,6 @@ export const actions: Actions = {
 				}
 			}
 
-			// Build a user-facing message that includes the PB field
-			// hint when available — admins can see exactly which
-			// column the schema rejected.
 			const fieldHint =
 				pbFieldErrors && Object.keys(pbFieldErrors).length > 0
 					? ` (ฟิลด์ที่มีปัญหา: ${Object.keys(pbFieldErrors).join(', ')})`
@@ -315,13 +270,15 @@ export const actions: Actions = {
 
 			return { ok: false, message };
 		} finally {
-			// ALWAYS drop the temp file — no matter what happened.
 			await safeUnlink(tempPath);
 		}
 	},
 
 	cancel: async ({ request, locals }) => {
 		if (!locals.user) throw error(401, 'Unauthorized');
+		if (locals.user.role !== 'teachers' && locals.user.role !== 'superadmin' && locals.user.role !== 'admin') {
+			throw error(403, 'Forbidden');
+		}
 
 		const data = await request.formData();
 		const jobId = String(data.get('jobId') ?? '');
@@ -343,13 +300,11 @@ export const actions: Actions = {
 				status: 'failed',
 				error_message: 'Cancelled by user'
 			});
-			// Refund the pages we charged up-front so the user can resubmit.
 			try {
 				await refundQuota(pb, locals.user.id, job.pages);
 			} catch {
-				/* swallow — refund is best-effort */
+				/* swallow */
 			}
-			// Cancel in CUPS if queued
 			if (job.cups_job_id) {
 				await cancelPrintJob(job.cups_job_id, job.printer_name);
 			}

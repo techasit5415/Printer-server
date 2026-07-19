@@ -9,9 +9,7 @@ export const load: PageServerLoad = async ({ locals }) => {
 	if (!locals.user) throw redirect(303, '/login');
 	if (locals.user.role === 'superadmin') {
 		throw redirect(303, '/admin');
-	} else if (locals.user.role === 'teachers' || locals.user.role === 'admin') {
-		throw redirect(303, '/user');
 	} else {
-		throw error(403, 'นักศึกษาไม่ได้รับอนุญาตให้ใช้งานระบบนี้');
+		throw redirect(303, '/user');
 	}
 };

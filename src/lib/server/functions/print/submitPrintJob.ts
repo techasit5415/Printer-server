@@ -12,6 +12,7 @@ export interface SubmitOptions {
 	media?: string;
 	pagesPerSheet?: number;
 	color?: 'mono' | 'color';
+	printerName?: string;
 }
 
 export interface SubmitResult {
@@ -31,7 +32,7 @@ export async function submitPrintJob(opts: SubmitOptions): Promise<SubmitResult>
 		throw new Error(`Invalid copies value: ${opts.copies}`);
 	}
 
-	const printer = sanitise(serverEnv.printerName, 64);
+	const printer = sanitise(opts.printerName ?? serverEnv.printerName, 64);
 	const title = sanitise(opts.title ?? 'SvelteKit Print Job', 128);
 	const sides = sanitise(opts.sides ?? 'one-sided', 32);
 	const media = opts.media ? sanitise(opts.media, 32) : null;

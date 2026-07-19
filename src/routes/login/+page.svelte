@@ -10,7 +10,7 @@
 	let oauthLoading = $state(false);
 	let oauthError = $state<string | null>(null);
 
-	async function signInWithGoogle() {
+	async function signInWithOidc() {
 		oauthLoading = true;
 		oauthError = null;
 		try {
@@ -21,14 +21,15 @@
 			// record on first login.
 			const result = await pb
 				.collection("users")
-				.authWithOAuth2({ provider: "google" });
+				.authWithOAuth2({ provider: "oidc" });
 
-			const res = await fetch("/auth/google", {
+			const res = await fetch("/auth/oidc", {
 				method: "POST",
 				headers: { "Content-Type": "application/json" },
 				body: JSON.stringify({
 					token: result.token,
 					record: result.record,
+					meta: (result as any).meta,
 				}),
 			});
 			if (!res.ok) throw new Error("failed to persist session");
@@ -40,7 +41,7 @@
 		} catch (e: unknown) {
 			oauthError =
 				(e as { message?: string })?.message ??
-				"Google sign-in failed. Please try again.";
+				"IAM sign-in failed. Please try again.";
 		} finally {
 			oauthLoading = false;
 		}
@@ -117,7 +118,7 @@
 			variant="secondary"
 			fullWidth
 			disabled={oauthLoading}
-			onclick={signInWithGoogle}
+			onclick={signInWithOidc}
 		>
 			<svg class="h-4 w-4" viewBox="0 0 24 24" aria-hidden="true">
 				<path

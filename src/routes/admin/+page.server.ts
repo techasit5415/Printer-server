@@ -40,7 +40,7 @@ export const load: PageServerLoad = async ({ locals }) => {
 
     const [users, jobsResult, quotasByUser] = await Promise.all([
         adminPb.collection('users').getFullList<UsersRecord>({
-            sort: 'name',
+            sort: 'email',
             expand: 'user_type'
         }),
         pb.collection('print_jobs').getList<PrintJobsRecord>(1, 100, {

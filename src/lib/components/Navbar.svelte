@@ -11,16 +11,20 @@
 	} from "@lucide/svelte";
 
 	let user = $derived(page.data.user);
-	const isAdmin = $derived(user?.role === "superadmin");
+	const isSuperAdmin = $derived(user?.role === "superadmin");
+	const isTeacher = $derived(user?.role === "teachers");
+	const canPrintTeacher = $derived(isTeacher || isSuperAdmin);
 
 	const links = $derived([
-		...(user && !isAdmin
+		...(canPrintTeacher
+			? [
+					{ href: "/user", label: "พิมพ์ (ทั่วไป)", icon: Upload, exact: true },
+					{ href: "/user/teacher", label: "พิมพ์ (อาจารย์)", icon: Printer },
+			  ]
+			: user
 			? [{ href: "/user", label: "พิมพ์", icon: Upload }]
 			: []),
-		...(isAdmin
-			? [{ href: "/user", label: "หน้า print", icon: Printer }]
-			: []),
-		...(isAdmin
+		...(isSuperAdmin
 			? [{ href: "/admin", label: "แผงควบคุม", icon: ShieldCheck }]
 			: []),
 	]);
@@ -65,7 +69,7 @@
 		<!-- Desktop nav — hidden below lg where the hamburger takes over. -->
 		<nav class="hidden items-center gap-1 lg:flex">
 			{#each links as link (link.href)}
-				{@const active = page.url.pathname.startsWith(link.href)}
+				{@const active = link.exact ? page.url.pathname === link.href : page.url.pathname.startsWith(link.href)}
 				<a
 					href={link.href}
 					class="inline-flex h-8 items-center gap-1.5 rounded-md px-3 font-mono text-xs transition-colors duration-200 {active
@@ -152,7 +156,7 @@
 				class="mx-auto flex max-w-[1400px] flex-col gap-1 px-4 py-3 sm:px-6"
 			>
 				{#each links as link (link.href)}
-					{@const active = page.url.pathname.startsWith(link.href)}
+					{@const active = link.exact ? page.url.pathname === link.href : page.url.pathname.startsWith(link.href)}
 					<a
 						href={link.href}
 						class="inline-flex h-10 items-center gap-2 rounded-md px-3 font-mono text-xs transition-colors duration-200 {active
