@@ -61,10 +61,7 @@ export const load: PageServerLoad = async ({ locals }) => {
 	const pb = createPocketBaseClient();
 	pb.authStore.save(locals.user.token);
 
-	const isUserAdmin = locals.user.role === 'superadmin' || locals.user.role === 'admin';
-	const filter = isUserAdmin
-		? `printer_name="${serverEnv.printerName}"`
-		: `user="${locals.user.id}" && printer_name="${serverEnv.printerName}"`;
+	const filter = `user="${locals.user.id}" && printer_name="${serverEnv.printerName}"`;
 
 	const [quota, jobsResult] = await Promise.all([
 		getQuota(pb, locals.user.id),
@@ -329,23 +326,23 @@ export const actions: Actions = {
 
 		const pb = createPocketBaseClient();
 		pb.authStore.save(locals.user.token);
-
 		try {
 			const job = await pb.collection('print_jobs').getOne<PrintJobsRecord>(jobId);
-			if (job.user !== locals.user.id) {
+			if (job.user !== locals.user.id && locals.user.role !== 'superadmin') {
 				throw error(403, 'Forbidden');
 			}
 			if (job.status !== 'pending' && job.status !== 'processing') {
 				return { ok: false, message: 'ไม่สามารถยกเลิกงานที่พิมพ์เสร็จแล้ว' };
 			}
 
+			const isCancelledByAdmin = locals.user.role === 'superadmin' && job.user !== locals.user.id;
 			await pb.collection('print_jobs').update(jobId, {
 				status: 'failed',
-				error_message: 'Cancelled by user'
+				error_message: isCancelledByAdmin ? 'Cancelled by admin' : 'Cancelled by user'
 			});
 			// Refund the pages we charged up-front so the user can resubmit.
 			try {
-				await refundQuota(pb, locals.user.id, job.pages);
+				await refundQuota(pb, job.user, job.pages);
 			} catch {
 				/* swallow — refund is best-effort */
 			}

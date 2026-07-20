@@ -192,7 +192,7 @@ export const actions: Actions = {
 
             // Cancel job in CUPS
             if (job.cups_job_id) {
-                await cancelPrintJob(job.cups_job_id);
+                await cancelPrintJob(job.cups_job_id, job.printer_name);
             }
 
             return { ok: true, message: 'ระงับงานเรียบร้อย' };
